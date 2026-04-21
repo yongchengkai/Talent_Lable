@@ -39,7 +39,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/talent_label
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/talent_label?stringtype=unspecified
       SPRING_DATASOURCE_USERNAME: talent
       SPRING_DATASOURCE_PASSWORD: talent123
       SPRING_DATA_REDIS_HOST: redis

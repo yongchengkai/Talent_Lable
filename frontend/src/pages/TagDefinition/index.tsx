@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Table, Space, Modal, Form, Input, Select, Tag, message, Popconfirm, Tooltip } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { tagApi, categoryApi } from '@/services/api';
 
 const { Option } = Select;
@@ -72,15 +72,15 @@ export default function TagDefinitionPage() {
 
   const handleStatusToggle = async (record: any) => {
     const newStatus = record.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    // 停用时检查是否被已发布规则引用
+    // 停用时检查是否被任意规则引用
     if (newStatus === 'INACTIVE') {
       try {
         const rules = await loadRules(record.id);
-        const publishedRules = (rules || []).filter((r: any) => r.status === 'PUBLISHED');
-        if (publishedRules.length > 0) {
+        if (rules && rules.length > 0) {
           Modal.info({
             title: '无法停用',
-            content: `标签「${record.tagName}」被 ${publishedRules.length} 条已发布规则引用，无法停用。请先撤销相关规则的发布后再操作。`,
+            icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />,
+            content: `标签「${record.tagName}」被 ${rules.length} 条规则引用，无法停用。请先移除规则中对该标签的引用后再操作。`,
             okText: '前往条件打标规则',
             okCancel: true,
             cancelText: '取消',
@@ -106,6 +106,7 @@ export default function TagDefinitionPage() {
       if (rules && rules.length > 0) {
         Modal.info({
           title: '无法删除',
+          icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />,
           content: `标签「${record.tagName}」被 ${rules.length} 条规则引用，请先移除规则中对该标签的引用后再删除。`,
           okText: '前往条件打标规则',
           okCancel: true,
@@ -120,6 +121,15 @@ export default function TagDefinitionPage() {
       message.success('删除成功');
       fetchData();
     } catch (e: any) {
+      if (e?.message?.includes('历史打标结果')) {
+        Modal.info({
+          title: '无法删除',
+          icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />,
+          content: `标签「${record.tagName}」存在历史打标结果引用。为保证历史追溯一致性，请保留该标签。`,
+          okText: '我知道了',
+        });
+        return;
+      }
       message.error(e.message);
     }
   };

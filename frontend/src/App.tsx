@@ -10,6 +10,8 @@ import SimulationPage from './pages/Simulation';
 import FormalTaskPage from './pages/FormalTask';
 import PlanningAgentPage from './pages/PlanningAgent';
 import PermissionPage from './pages/Permission';
+import ApprovalPage from './pages/Approval';
+import TagResultPage from './pages/TagResult';
 import SkillManagementPage from './pages/SkillManagement';
 import ModelConfigPage from './pages/ModelConfig';
 import ProductDocsPage from './pages/ProductDocs';
@@ -30,8 +32,10 @@ export default function App() {
         <Route path="rules/semantic" element={<RuleSemanticPage />} />
         <Route path="tasks/simulation" element={<SimulationPage />} />
         <Route path="tasks/formal" element={<FormalTaskPage />} />
+        <Route path="tag-results" element={<TagResultPage />} />
         <Route path="planning-agent" element={<PlanningAgentPage />} />
         <Route path="permissions" element={<PermissionPage />} />
+        <Route path="approvals" element={<ApprovalPage />} />
         <Route path="skill-management" element={<SkillManagementPage />} />
         <Route path="model-config" element={<ModelConfigPage />} />
         <Route path="product-docs" element={<ProductDocsPage />} />

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, Table, Space, Tag, message, Input, Modal, Form, Select, Popconfirm, Drawer } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ReloadOutlined } from '@ant-design/icons';
-import { taskApi, ruleApi } from '@/services/api';
-import RulePickerModal from '@/components/RulePickerModal';
-import ScopeSelector from '@/components/ScopeSelector';
+import { Button, Table, Space, Tag, message, Input, Modal, Select, Popconfirm, Drawer } from 'antd';
+import { PlusOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { taskApi } from '@/services/api';
+import ActionLink from '@/components/ActionLink';
+import CreateModal from './CreateModal';
+import EditModal from './EditModal';
+import ViewModal from './ViewModal';
 
 const { Option } = Select;
 
@@ -14,8 +16,10 @@ const taskStatusMap: Record<string, { text: string; color: string }> = {
   FAILED: { text: '运行失败', color: 'error' },
 };
 const submitStatusMap: Record<string, { text: string; color: string }> = {
-  PENDING: { text: '待提交', color: 'warning' },
-  SUBMITTED: { text: '已入库', color: 'success' },
+  PENDING: { text: '待提交', color: 'default' },
+  SUBMITTED: { text: '已提交', color: 'processing' },
+  APPROVED: { text: '已审批', color: 'success' },
+  REJECTED: { text: '已驳回', color: 'error' },
 };
 
 type RuleFilter = 'all' | 'success' | 'failed';
@@ -30,23 +34,20 @@ export default function FormalTaskPage() {
   const [filterTaskStatus, setFilterTaskStatus] = useState<string>();
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [form] = Form.useForm();
-  const [rulePickerOpen, setRulePickerOpen] = useState(false);
-  const [selectedRuleIds, setSelectedRuleIds] = useState<number[]>([]);
-  const [selectedRuleNames, setSelectedRuleNames] = useState<string[]>([]);
-  const [scope, setScope] = useState<{ type: 'FULL' | 'CUSTOM'; orgIds: number[]; employeeIds: number[] }>({ type: 'FULL', orgIds: [], employeeIds: [] });
-
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRecord, setEditRecord] = useState<any>(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewRecord, setViewRecord] = useState<any>(null);
 
   const [resultOpen, setResultOpen] = useState(false);
   const [resultTask, setResultTask] = useState<any>(null);
+  const [resultData, setResultData] = useState<any[]>([]);
+  const [resultLoading, setResultLoading] = useState(false);
 
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceData, setEvidenceData] = useState<any>(null);
 
-  // 规则明细弹窗
   const [ruleDetailOpen, setRuleDetailOpen] = useState(false);
   const [ruleDetailFilter, setRuleDetailFilter] = useState<RuleFilter>('all');
   const [ruleDetailTask, setRuleDetailTask] = useState<any>(null);
@@ -64,59 +65,28 @@ export default function FormalTaskPage() {
 
   useEffect(() => { fetchData(1); }, []);
 
-  const openCreateForm = () => {
-    form.resetFields();
-    form.setFieldsValue({ taskName: '正式打标-' + new Date().toLocaleDateString() });
-    setSelectedRuleIds([]);
-    setSelectedRuleNames([]);
-    setFormOpen(true);
-  };
-
-  const handleCreate = async () => {
-    const values = await form.validateFields();
-    try {
-      await taskApi.create({
-        taskName: values.taskName, taskType: scope.type === 'FULL' ? 'FULL' : 'CUSTOM', taskMode: 'FORMAL',
-        taskScope: scope.type === 'FULL' ? null : JSON.stringify({ orgIds: scope.orgIds, employeeIds: scope.employeeIds }),
-        triggeredBy: 'admin', ruleIds: selectedRuleIds,
-      });
-      message.success('创建成功'); setFormOpen(false); form.resetFields(); fetchData();
-    } catch (e: any) { message.error(e.message); }
-  };
-
-  const handleRulePickerOk = async (ids: number[]) => {
-    setSelectedRuleIds(ids);
-    try {
-      const res: any = await ruleApi.page({ current: 1, size: 100, status: 'PUBLISHED' });
-      const allRules = res.data?.records || [];
-      const names = ids.map(id => allRules.find((r: any) => r.id === id)?.ruleName || `规则#${id}`);
-      setSelectedRuleNames(names);
-    } catch { setSelectedRuleNames(ids.map(id => `规则#${id}`)); }
-    setRulePickerOpen(false);
-  };
-
-  const openEditForm = (record: any) => {
-    form.resetFields();
-    form.setFieldsValue({ taskName: record.taskName });
-    setSelectedRuleIds([]);
-    setSelectedRuleNames([]);
-    // 加载该任务已关联的规则
-    taskApi.getRules(record.id).then((res: any) => {
-      const rules = res.data || [];
-      setSelectedRuleIds(rules.map((r: any) => r.ruleId));
-      setSelectedRuleNames(rules.map((r: any) => r.ruleName));
-    }).catch(() => {});
-    setFormOpen(true);
-  };
-
   const handleRun = async (record: any) => {
-    try { await taskApi.run(record.id); message.success('已开始运行'); fetchData(); }
-    catch (e: any) { message.error(e.message); }
+    try {
+      await taskApi.run(record.id);
+      message.success('已开始运行');
+      fetchData();
+      const poll = setInterval(async () => {
+        try {
+          const res: any = await taskApi.getById(record.id);
+          if (res.data?.taskStatus !== 'RUNNING') { clearInterval(poll); fetchData(); }
+        } catch { clearInterval(poll); }
+      }, 2000);
+    } catch (e: any) { message.error(e.message); }
   };
 
   const handleSubmit = async (record: any) => {
     try { await taskApi.submit(record.id); message.success('已提交入库'); fetchData(); }
     catch (e: any) { message.error(e.message || '提交失败'); }
+  };
+
+  const handleRevoke = async (record: any) => {
+    try { await taskApi.revoke(record.id); message.success('已回撤，任务恢复到未运行状态'); fetchData(); }
+    catch (e: any) { message.error(e.message || '回撤失败'); }
   };
 
   const handleBatchRetry = async () => {
@@ -127,20 +97,17 @@ export default function FormalTaskPage() {
     message.success('已发起批量重试'); setSelectedRowKeys([]); fetchData();
   };
 
-  const openResult = (record: any) => { setResultTask(record); setResultOpen(true); };
-  const openDetail = (record: any) => { setDetailRecord(record); setDetailOpen(true); };
-  const openEvidence = (row: any) => { setEvidenceData(row); setEvidenceOpen(true); };
+  const openResult = async (record: any) => {
+    setResultTask(record); setResultOpen(true); setResultLoading(true);
+    try { const res: any = await taskApi.getResults(record.id); setResultData(res.data || []); }
+    catch { setResultData([]); }
+    setResultLoading(false);
+  };
 
-  /** 打开规则明细弹窗 */
   const openRuleDetail = async (record: any, filter: RuleFilter) => {
-    setRuleDetailTask(record);
-    setRuleDetailFilter(filter);
-    setRuleDetailOpen(true);
-    setRuleDetailLoading(true);
-    try {
-      const res: any = await taskApi.getRules(record.id);
-      setRuleDetailData(res.data || []);
-    } catch { setRuleDetailData([]); }
+    setRuleDetailTask(record); setRuleDetailFilter(filter); setRuleDetailOpen(true); setRuleDetailLoading(true);
+    try { const res: any = await taskApi.getRules(record.id); setRuleDetailData(res.data || []); }
+    catch { setRuleDetailData([]); }
     setRuleDetailLoading(false);
   };
 
@@ -160,52 +127,84 @@ export default function FormalTaskPage() {
   ];
 
   const CountCell = ({ value, record, filter, color }: { value: number; record: any; filter: RuleFilter; color: string }) => (
-    <a onClick={() => openRuleDetail(record, filter)}
-       style={{ color, fontWeight: 600, cursor: 'pointer', borderBottom: `1px dashed ${color}` }}>
-      {value ?? 0}
-    </a>
+    <a onClick={() => openRuleDetail(record, filter)} style={{ color, fontWeight: 600, cursor: 'pointer', borderBottom: `1px dashed ${color}` }}>{value ?? 0}</a>
   );
 
   const resultColumns = [
     { title: '员工姓名', dataIndex: 'employeeName', width: 100 },
     { title: '工号', dataIndex: 'employeeNo', width: 100 },
     { title: '部门', dataIndex: 'orgName', width: 120 },
-    { title: '当前标签', dataIndex: 'currentTags', width: 180, render: (tags: string[]) => tags?.map(t => <Tag key={t} color="blue">{t}</Tag>) || '-' },
-    { title: '本次打标', dataIndex: 'newTags', width: 180, render: (tags: string[]) => tags?.map(t => <Tag key={t} color="green">{t}</Tag>) || '-' },
-    { title: '变化', dataIndex: 'change', width: 80, render: (v: string) => v === 'NEW' ? <Tag color="success">新增</Tag> : v === 'REMOVED' ? <Tag color="error">移除</Tag> : <Tag>不变</Tag> },
-    { title: '操作', width: 80, render: (_: any, row: any) => <a className="action-link" onClick={() => openEvidence(row)}>证据</a> },
+    { title: '职级', dataIndex: 'gradeLevel', width: 70 },
+    { title: '命中标签', dataIndex: 'hitTags', width: 200, render: (tags: string[]) => tags?.length > 0 ? tags.map(t => <Tag key={t} color="green">{t}</Tag>) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>无</span> },
+    { title: '命中数', dataIndex: 'hitCount', width: 70, render: (v: number) => <span style={{ fontWeight: 600, color: v > 0 ? '#10b981' : 'rgba(255,255,255,0.2)' }}>{v}</span> },
   ];
 
-  const mockResultData = resultTask?.taskStatus === 'SUCCESS' ? [
-    { key: 1, employeeName: '张明', employeeNo: 'EMP001', orgName: '技术研发部', currentTags: [], newTags: ['核心骨干'], change: 'NEW' },
-    { key: 2, employeeName: '王强', employeeNo: 'EMP003', orgName: '产品设计部', currentTags: [], newTags: ['核心骨干'], change: 'NEW' },
-    { key: 3, employeeName: '陈磊', employeeNo: 'EMP005', orgName: '技术研发部', currentTags: [], newTags: ['核心骨干'], change: 'NEW' },
-    { key: 4, employeeName: '周涛', employeeNo: 'EMP008', orgName: '财务部', currentTags: [], newTags: ['核心骨干'], change: 'NEW' },
-  ] : [];
-
   const columns = [
-    { title: '任务名称', dataIndex: 'taskName', width: 200, render: (name: string, record: any) => <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a> },
+    { title: '任务名称', dataIndex: 'taskName', width: 200, render: (name: string, record: any) => <a className="action-link" style={{ fontWeight: 500 }} onClick={() => { setViewRecord(record); setViewOpen(true); }}>{name}</a> },
     { title: '任务编号', dataIndex: 'taskNo', width: 150 },
-    { title: '运行状态', dataIndex: 'taskStatus', width: 110, render: (s: string) => <Tag color={taskStatusMap[s]?.color}>{taskStatusMap[s]?.text}</Tag> },
-    { title: '提交状态', dataIndex: 'submitStatus', width: 110, render: (s: string) => s ? <Tag color={submitStatusMap[s]?.color}>{submitStatusMap[s]?.text}</Tag> : '-' },
-    { title: '总数', dataIndex: 'totalCount', width: 70, render: (v: number, r: any) => <CountCell value={v} record={r} filter="all" color="#22d3ee" /> },
-    { title: '成功', dataIndex: 'successCount', width: 70, render: (v: number, r: any) => <CountCell value={v} record={r} filter="success" color="#10b981" /> },
-    { title: '失败', dataIndex: 'failCount', width: 70, render: (v: number, r: any) => <CountCell value={v} record={r} filter="failed" color="#ef4444" /> },
+    { title: '运行状态', dataIndex: 'taskStatus', width: 110, render: (s: string, record: any) => {
+      if (s === 'RUNNING') return <Tag icon={<span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#1890ff', marginRight: 6, animation: 'pulse 1.5s infinite' }} />} color="processing">运行中</Tag>;
+      if (s === 'FAILED' && record.errorMessage) return <Tag color="error" style={{ cursor: 'pointer' }} onClick={() => { Modal.error({ title: '运行失败', content: record.errorMessage, width: 500 }); }}>运行失败</Tag>;
+      return <Tag color={taskStatusMap[s]?.color}>{taskStatusMap[s]?.text}</Tag>;
+    }},
+    { title: '提交状态', dataIndex: 'submitStatus', width: 110, render: (s: string, r: any) => r.taskStatus === 'INIT' || r.taskStatus === 'RUNNING' ? <span style={{ color: 'rgba(255,255,255,0.2)' }}>-</span> : s ? <Tag color={submitStatusMap[s]?.color}>{submitStatusMap[s]?.text}</Tag> : '-' },
+    { title: '总数', dataIndex: 'totalCount', width: 70, render: (v: number, r: any) => r.taskStatus === 'INIT' ? <span style={{ color: '#22d3ee', fontWeight: 600 }}>{v ?? 0}</span> : <CountCell value={v} record={r} filter="all" color="#22d3ee" /> },
+    { title: '成功', dataIndex: 'successCount', width: 70, render: (v: number, r: any) => r.taskStatus === 'INIT' ? <span style={{ color: 'rgba(255,255,255,0.2)' }}>-</span> : <CountCell value={v} record={r} filter="success" color="#10b981" /> },
+    { title: '失败', dataIndex: 'failCount', width: 70, render: (v: number, r: any) => r.taskStatus === 'INIT' ? <span style={{ color: 'rgba(255,255,255,0.2)' }}>-</span> : <CountCell value={v} record={r} filter="failed" color="#ef4444" /> },
     { title: '创建时间', dataIndex: 'createdAt', width: 170 },
     {
       title: '操作', width: 300,
       render: (_: any, record: any) => (
-        <Space>
-          {(record.taskStatus === 'INIT' || record.taskStatus === 'FAILED') && <a className="action-link action-link-success" onClick={() => handleRun(record)}>运行</a>}
-          {(record.taskStatus === 'INIT' || record.taskStatus === 'FAILED') && <a className="action-link" onClick={() => openEditForm(record)}>编辑</a>}
-          {record.taskStatus === 'FAILED' && <a className="action-link" onClick={() => handleRun(record)}>重试</a>}
-          {record.taskStatus === 'SUCCESS' && record.submitStatus === 'PENDING' && <a className="action-link action-link-success" onClick={() => handleSubmit(record)}>提交</a>}
-          {record.taskStatus === 'SUCCESS' && <a className="action-link" onClick={() => openResult(record)}>查看结果</a>}
-          {record.taskStatus === 'RUNNING' && <Tag color="processing">运行中...</Tag>}
-          {record.taskStatus !== 'RUNNING' && (
-            <a className="action-link action-link-danger" onClick={async () => { try { await taskApi.delete(record.id); message.success('已删除'); fetchData(); } catch (e: any) { message.error(e.message || '删除失败'); } }}>删除</a>
-          )}
-        </Space>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <Space size={8}>
+            <ActionLink success
+              disabled={record.taskStatus === 'RUNNING' || record.submitStatus === 'SUBMITTED'}
+              disabledReason={record.taskStatus === 'RUNNING' ? '任务正在运行中' : '已提交审批，不可运行'}
+              onClick={() => handleRun(record)}>
+              {record.taskStatus === 'SUCCESS' ? '重新运行' : record.taskStatus === 'FAILED' ? '重试' : '运行'}
+            </ActionLink>
+            <ActionLink
+              disabled={record.taskStatus === 'RUNNING' || record.submitStatus === 'SUBMITTED' || record.taskStatus === 'SUCCESS'}
+              disabledReason={record.taskStatus === 'RUNNING' ? '运行中不可编辑' : record.submitStatus === 'SUBMITTED' ? '已提交审批不可编辑' : '需先撤销后才能编辑'}
+              onClick={() => { setEditRecord(record); setEditOpen(true); }}>
+              编辑
+            </ActionLink>
+            <ActionLink success
+              disabled={record.taskStatus !== 'SUCCESS' || record.submitStatus === 'SUBMITTED'}
+              disabledReason={record.taskStatus !== 'SUCCESS' ? '仅运行成功的任务可提交' : '任务已提交'}
+              onClick={() => handleSubmit(record)}>
+              提交
+            </ActionLink>
+          </Space>
+          <Space size={8}>
+            <ActionLink danger
+              disabled={record.taskStatus !== 'SUCCESS' || record.submitStatus === 'SUBMITTED'}
+              disabledReason={record.taskStatus !== 'SUCCESS' ? '仅运行成功的任务可撤销' : '已提交审批不可撤销'}
+              onClick={() => {
+                Modal.confirm({ title: '确认撤销', icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />, content: '将清除运行结果，任务恢复到未运行状态。确认撤销？', okText: '确认撤销', cancelText: '取消', okButtonProps: { danger: true },
+                  onOk: async () => { try { await taskApi.revoke(record.id); message.success('已撤销'); fetchData(); } catch (e: any) { message.error(e.message || '撤销失败'); } },
+                });
+              }}>
+              撤销
+            </ActionLink>
+            <ActionLink
+              disabled={record.taskStatus !== 'SUCCESS'}
+              disabledReason="仅运行成功的任务可查看结果"
+              onClick={() => openResult(record)}>
+              查看结果
+            </ActionLink>
+            <ActionLink danger
+              disabled={record.taskStatus === 'RUNNING' || record.submitStatus === 'SUBMITTED' || record.taskStatus === 'SUCCESS'}
+              disabledReason={record.taskStatus === 'RUNNING' ? '运行中不可删除' : record.submitStatus === 'SUBMITTED' ? '已提交审批不可删除' : '请先撤销后再删除'}
+              onClick={() => {
+                Modal.confirm({ title: '确认删除', icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />, content: '删除后不可恢复，确认删除该任务？', okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true },
+                  onOk: async () => { try { await taskApi.delete(record.id); message.success('已删除'); fetchData(); } catch (e: any) { message.error(e.message || '删除失败'); } },
+                });
+              }}>
+              删除
+            </ActionLink>
+          </Space>
+        </div>
       ),
     },
   ];
@@ -221,77 +220,21 @@ export default function FormalTaskPage() {
           <Button onClick={() => fetchData(1)}>查询</Button>
           <Button onClick={() => { setKeyword(''); setFilterTaskStatus(undefined); fetchData(1); }}>重置</Button>
         </Space>
-        <Space>
-          <Button icon={<ExportOutlined />}>批量导出</Button>
-          <Button icon={<ReloadOutlined />} disabled={selectedRowKeys.length === 0} onClick={handleBatchRetry}>批量重试</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateForm}>新建</Button>
-        </Space>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建</Button>
       </div>
       <Table rowKey="id" columns={columns} dataSource={data} loading={loading}
-        rowSelection={{ selectedRowKeys, onChange: keys => setSelectedRowKeys(keys as number[]) }}
         pagination={{ current, total, pageSize, showTotal: t => `共 ${t} 条`, showSizeChanger: true, onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); } }} />
 
-      {/* 新建弹窗 */}
-      <Modal title="新建正式打标" open={formOpen} width={860} onOk={handleCreate} onCancel={() => { setFormOpen(false); form.resetFields(); }} maskClosable={false}>
-        <Form form={form} layout="vertical">
-          <Form.Item name="taskName" label="任务名称" rules={[{ required: true }]}><Input placeholder="输入任务名称" /></Form.Item>
-          <Form.Item label="打标范围">
-            <ScopeSelector value={scope} onChange={setScope} />
-          </Form.Item>
-          <Form.Item label="选择已发布规则" extra="正式打标仅允许选择已发布状态的规则">
-            <div>
-              <Button onClick={() => setRulePickerOpen(true)} style={{ marginBottom: 8 }}>
-                选择规则（已选 {selectedRuleIds.length} 条）
-              </Button>
-              {selectedRuleNames.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {selectedRuleNames.map((name, i) => (
-                    <Tag key={i} closable onClose={() => {
-                      const newIds = selectedRuleIds.filter((_, idx) => idx !== i);
-                      const newNames = selectedRuleNames.filter((_, idx) => idx !== i);
-                      setSelectedRuleIds(newIds);
-                      setSelectedRuleNames(newNames);
-                    }}>{name}</Tag>
-                  ))}
-                </div>
-              )}
-            </div>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <RulePickerModal open={rulePickerOpen} value={selectedRuleIds} publishedOnly
-                       onOk={handleRulePickerOk} onCancel={() => setRulePickerOpen(false)} />
-
-      {/* 详情弹窗 */}
-      <Modal title="正式打标任务详情" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={<Button onClick={() => setDetailOpen(false)}>关闭</Button>} width={500} maskClosable={false} destroyOnClose>
-        {detailRecord && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 24px' }}>
-            <div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>任务名称</div><div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.92)' }}>{detailRecord.taskName}</div></div>
-            <div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>任务编号</div><div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.92)', fontFamily: "'JetBrains Mono', monospace" }}>{detailRecord.taskNo}</div></div>
-            <div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>运行状态</div><Tag color={taskStatusMap[detailRecord.taskStatus]?.color}>{taskStatusMap[detailRecord.taskStatus]?.text}</Tag></div>
-            <div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>提交状态</div>{detailRecord.submitStatus ? <Tag color={submitStatusMap[detailRecord.submitStatus]?.color}>{submitStatusMap[detailRecord.submitStatus]?.text}</Tag> : '-'}</div>
-            <div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>总数 / 成功 / 失败</div><div style={{ color: 'rgba(255,255,255,0.92)' }}>{detailRecord.totalCount ?? 0} / {detailRecord.successCount ?? 0} / {detailRecord.failCount ?? 0}</div></div>
-            <div><div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>创建时间</div><div style={{ color: 'rgba(255,255,255,0.92)' }}>{detailRecord.createdAt || '-'}</div></div>
-          </div>
-        )}
-      </Modal>
+      <CreateModal open={createOpen} onClose={() => setCreateOpen(false)} onSuccess={() => fetchData()} />
+      <EditModal open={editOpen} record={editRecord} onClose={() => { setEditOpen(false); setEditRecord(null); }} onSuccess={() => fetchData()} />
+      <ViewModal open={viewOpen} record={viewRecord} onClose={() => { setViewOpen(false); setViewRecord(null); }} />
 
       {/* 规则明细弹窗 */}
       <Modal
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span>规则执行明细 — {ruleDetailTask?.taskName}</span>
-            <Tag color={ruleDetailFilter === 'all' ? 'cyan' : ruleDetailFilter === 'success' ? 'success' : 'error'}>
-              {ruleDetailFilter === 'all' ? '全部' : ruleDetailFilter === 'success' ? '成功' : '失败'}
-            </Tag>
-          </div>
-        }
-        open={ruleDetailOpen}
-        onCancel={() => setRuleDetailOpen(false)}
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><span>规则执行明细 — {ruleDetailTask?.taskName}</span><Tag color={ruleDetailFilter === 'all' ? 'cyan' : ruleDetailFilter === 'success' ? 'success' : 'error'}>{ruleDetailFilter === 'all' ? '全部' : ruleDetailFilter === 'success' ? '成功' : '失败'}</Tag></div>}
+        open={ruleDetailOpen} onCancel={() => setRuleDetailOpen(false)}
         footer={<Button onClick={() => setRuleDetailOpen(false)}>关闭</Button>}
-        width={800} maskClosable={false} destroyOnClose
-      >
+        width={800} maskClosable={false} destroyOnClose>
         <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
           {(['all', 'success', 'failed'] as RuleFilter[]).map(f => (
             <Tag key={f} color={ruleDetailFilter === f ? (f === 'all' ? 'cyan' : f === 'success' ? 'success' : 'error') : 'default'}
@@ -300,17 +243,18 @@ export default function FormalTaskPage() {
             </Tag>
           ))}
         </div>
-        <Table columns={ruleDetailColumns} dataSource={filteredRuleData} rowKey="ruleId" loading={ruleDetailLoading}
-               pagination={false} size="small" scroll={{ y: 400 }} />
+        <Table columns={ruleDetailColumns} dataSource={filteredRuleData} rowKey="ruleId" loading={ruleDetailLoading} pagination={false} size="small" scroll={{ y: 400 }} />
       </Modal>
 
-      {/* 结果对比抽屉 */}
-      <Drawer title={`打标结果对比 — ${resultTask?.taskName || ''}`} open={resultOpen} width={900} onClose={() => setResultOpen(false)} destroyOnClose>
-        <div style={{ marginBottom: 16, color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>按人员展示"当前标签 vs 本次打标标签"对比，点击"证据"查看命中详情</div>
-        <Table columns={resultColumns} dataSource={mockResultData} pagination={false} size="small" />
+      {/* 结果抽屉 */}
+      <Drawer title={`打标结果 — ${resultTask?.taskName || ''}`} open={resultOpen} width={900} onClose={() => setResultOpen(false)} destroyOnClose>
+        <div style={{ marginBottom: 16, color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+          共 {resultData.length} 名员工参与打标，{resultData.filter(r => r.hitCount > 0).length} 人命中标签
+        </div>
+        <Table columns={resultColumns} dataSource={resultData} rowKey="employeeId" loading={resultLoading} pagination={{ pageSize: 20, showTotal: t => `共 ${t} 人` }} size="small" />
       </Drawer>
 
-      {/* 证据下钻弹窗 */}
+      {/* 证据弹窗 */}
       <Modal title="打标证据详情" open={evidenceOpen} onCancel={() => setEvidenceOpen(false)} footer={<Button onClick={() => setEvidenceOpen(false)}>关闭</Button>} width={600} maskClosable={false} destroyOnClose>
         {evidenceData && (
           <div>

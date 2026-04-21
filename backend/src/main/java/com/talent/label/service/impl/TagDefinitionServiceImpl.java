@@ -3,9 +3,13 @@ package com.talent.label.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.talent.label.common.BizException;
+import com.talent.label.domain.entity.EmployeeTagResult;
+import com.talent.label.domain.entity.EmployeeTagResultDetail;
 import com.talent.label.domain.entity.TagDefinition;
 import com.talent.label.domain.entity.TagRule;
 import com.talent.label.domain.entity.TagRuleOutput;
+import com.talent.label.mapper.EmployeeTagResultDetailMapper;
+import com.talent.label.mapper.EmployeeTagResultMapper;
 import com.talent.label.mapper.TagDefinitionMapper;
 import com.talent.label.mapper.TagRuleMapper;
 import com.talent.label.mapper.TagRuleOutputMapper;
@@ -24,6 +28,8 @@ public class TagDefinitionServiceImpl implements TagDefinitionService {
     private final TagDefinitionMapper tagMapper;
     private final TagRuleOutputMapper ruleOutputMapper;
     private final TagRuleMapper ruleMapper;
+    private final EmployeeTagResultMapper tagResultMapper;
+    private final EmployeeTagResultDetailMapper tagResultDetailMapper;
 
     @Override
     public Page<TagDefinition> page(int current, int size, String keyword, String status, Long categoryId) {
@@ -95,10 +101,41 @@ public class TagDefinitionServiceImpl implements TagDefinitionService {
     @Override
     public void delete(Long id) {
         TagDefinition tag = getById(id);
-        if (!"INACTIVE".equals(tag.getStatus())) {
-            throw new BizException("仅失效状态的标签可删除");
+        long ruleRefCount = countRuleReferences(tag);
+        if (ruleRefCount > 0) {
+            throw new BizException("标签被规则引用，无法删除");
         }
+
+        long historyRefCount = countHistoryReferences(tag.getId());
+        if (historyRefCount > 0) {
+            throw new BizException("标签存在历史打标结果，无法删除");
+        }
+
         tagMapper.deleteById(id);
+    }
+
+    private long countRuleReferences(TagDefinition tag) {
+        Long outputRefCount = ruleOutputMapper.selectCount(
+                new LambdaQueryWrapper<TagRuleOutput>().eq(TagRuleOutput::getTagId, tag.getId()));
+
+        String pattern = "（" + tag.getTagCode() + "）";
+        Long dslRefCount = ruleMapper.selectCount(
+                new LambdaQueryWrapper<TagRule>()
+                        .like(TagRule::getDslContent, pattern));
+
+        return nullToZero(outputRefCount) + nullToZero(dslRefCount);
+    }
+
+    private long countHistoryReferences(Long tagId) {
+        Long resultRefCount = tagResultMapper.selectCount(
+                new LambdaQueryWrapper<EmployeeTagResult>().eq(EmployeeTagResult::getTagId, tagId));
+        Long detailRefCount = tagResultDetailMapper.selectCount(
+                new LambdaQueryWrapper<EmployeeTagResultDetail>().eq(EmployeeTagResultDetail::getTagId, tagId));
+        return nullToZero(resultRefCount) + nullToZero(detailRefCount);
+    }
+
+    private long nullToZero(Long value) {
+        return value == null ? 0L : value;
     }
 
     @Override

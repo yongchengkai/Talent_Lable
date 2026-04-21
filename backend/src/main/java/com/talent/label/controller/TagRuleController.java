@@ -8,6 +8,9 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/tag-rules")
 @RequiredArgsConstructor
@@ -50,6 +53,17 @@ public class TagRuleController {
     public R<Void> stop(@PathVariable Long id) {
         ruleService.stop(id);
         return R.ok();
+    }
+
+    @PostMapping("/{id}/rollback")
+    public R<Void> rollback(@PathVariable Long id) {
+        ruleService.rollback(id);
+        return R.ok();
+    }
+
+    @GetMapping("/{id}/formal-tasks")
+    public R<List<Map<String, Object>>> getFormalTasks(@PathVariable Long id) {
+        return R.ok(ruleService.getFormalTasks(id));
     }
 
     @PostMapping("/{id}/copy")

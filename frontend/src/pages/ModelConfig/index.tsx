@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Switch, Space, Tag, message, InputNumber } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, StarOutlined, StarFilled, ApiOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, StarOutlined, StarFilled, ApiOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { modelConfigApi } from '@/services/api';
 
 const { Option } = Select;
@@ -55,11 +55,12 @@ const ModelConfig: React.FC = () => {
   };
 
   const handleDelete = async (id: number) => {
-    try {
-      await modelConfigApi.delete(id);
-      message.success('已删除');
-      fetchData();
-    } catch (e: any) { message.error(e.message || '删除失败'); }
+    Modal.confirm({ title: '确认删除', icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />, content: '删除后不可恢复，确认删除该模型配置？', okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true },
+      onOk: async () => {
+        try { await modelConfigApi.delete(id); message.success('已删除'); fetchData(); }
+        catch (e: any) { message.error(e.message || '删除失败'); }
+      },
+    });
   };
 
   const handleSetDefault = async (id: number) => {

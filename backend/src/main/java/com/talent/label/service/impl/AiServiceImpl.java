@@ -1,10 +1,10 @@
 package com.talent.label.service.impl;
 
+import com.talent.label.ai.DynamicChatModelFactory;
 import com.talent.label.service.AiService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -16,38 +16,54 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AiServiceImpl implements AiService {
 
-    private final ChatModel chatModel;
+    private final DynamicChatModelFactory chatModelFactory;
 
     private ChatClient client() {
-        return ChatClient.builder(chatModel).build();
+        return ChatClient.builder(chatModelFactory.getDefaultModel()).build();
     }
 
     @Override
-    public String generateDsl(String naturalLanguage, String context) {
+    public String generateDsl(String naturalLanguage, String availableFields, String availableTags) {
         String systemPrompt = """
                 你是一个人才打标系统的规则 DSL 生成助手。
-                用户会用自然语言描述打标规则，你需要将其转换为系统 DSL 格式。
+                用户会用自然语言描述打标规则，你需要将其转换为 JSON 格式的 DSL。
 
-                DSL 格式如下：
-                rule "规则名"
-                when
-                  条件表达式 -> tag "标签名"
-                then
-                  mode store
-                end
+                输出格式（严格 JSON，不要 markdown 包裹）：
+                {
+                  "conditions": [
+                    { "field": "@{字段中文名（field_code）}", "op": "操作符", "value": "值" }
+                  ],
+                  "logic": "AND 或 OR",
+                  "outputs": ["#{标签名称（TAG_CODE）}"]
+                }
 
-                explain:
-                  自然语言解释
+                多分支规则格式：
+                {
+                  "type": "MULTI_BRANCH",
+                  "branches": [
+                    {
+                      "conditions": [{ "field": "...", "op": "...", "value": "..." }],
+                      "logic": "AND",
+                      "outputs": ["#{标签名（TAG_CODE）}"]
+                    }
+                  ]
+                }
 
-                支持的运算符：EQ, NE, GT, GE, LT, LE, IN, BETWEEN
-                支持的逻辑连接：AND, OR
-                常用字段：grade_level(职级), tenure_years(任职年限), performance(绩效), age(年龄)
-                """;
+                支持的操作符：EQ(等于), NE(不等于), GT(大于), GE(大于等于), LT(小于), LE(小于等于), IN(在列表中,逗号分隔), NOT_IN(不在列表中), BETWEEN(区间,逗号分隔), LIKE(包含)
+
+                规则：
+                - field 必须使用 @{中文名（field_code）} 格式，从可用字段列表中匹配
+                - outputs 必须使用 #{标签名（TAG_CODE）} 格式，从可用标签列表中匹配
+                - 单条件时 logic 设为 "AND"
+                - 只输出 JSON，不要任何其他文字
+
+                可用字段列表：
+                """ + availableFields + """
+
+                可用标签列表：
+                """ + availableTags;
 
         String userPrompt = "请根据以下描述生成 DSL 规则：\n" + naturalLanguage;
-        if (context != null && !context.isBlank()) {
-            userPrompt += "\n\n上下文信息：\n" + context;
-        }
 
         return client().prompt()
                 .system(systemPrompt)

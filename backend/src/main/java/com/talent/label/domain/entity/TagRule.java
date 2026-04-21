@@ -27,6 +27,8 @@ public class TagRule {
     private String updatedBy;
     @TableLogic
     private Integer deleted;
+    @TableField(exist = false)
+    private Long formalTaskCount;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
     @TableField(fill = FieldFill.INSERT_UPDATE)

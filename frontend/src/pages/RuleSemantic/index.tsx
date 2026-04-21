@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, Table, Space, Modal, Form, Input, Select, Tag, message, Popconfirm } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { ruleApi, tagApi, categoryApi } from '@/services/api';
+import ActionLink from '@/components/ActionLink';
 import TagMentionTextArea, { extractTagRefs } from '@/components/TagMentionTextArea';
 
 const { Option } = Select;
@@ -53,17 +54,21 @@ export default function RuleSemanticPage() {
   };
 
   const openEdit = async (record: any) => {
-    if (record.status === 'PUBLISHED') {
-      Modal.info({
-        title: '无法编辑',
-        content: `规则「${record.ruleName}」已发布，不可直接编辑。请先复制为新规则后再修改。`,
-        okText: '复制规则',
-        okCancel: true,
-        cancelText: '取消',
-        onOk: () => openCopy(record),
-      });
-      return;
-    }
+    // 检查是否被正式任务运行成功或运行中
+    try {
+      const res: any = await ruleApi.getFormalTasks(record.id);
+      const tasks = res.data || [];
+      const blocked = tasks.filter((t: any) => t.taskStatus === 'RUNNING' || t.taskStatus === 'SUCCESS');
+      if (blocked.length > 0) {
+        Modal.info({
+          title: '无法编辑',
+          icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />,
+          content: `规则「${record.ruleName}」已被 ${blocked.length} 个正式打标任务使用（运行中或已成功），不可编辑。请先撤销相关任务后再编辑。`,
+          okText: '知道了',
+        });
+        return;
+      }
+    } catch {}
     setEditingId(record.id); form.setFieldsValue(record);
     setModalOpen(true);
   };
@@ -113,7 +118,7 @@ export default function RuleSemanticPage() {
   };
 
   const handleUnpublish = async (record: any) => {
-    try { await ruleApi.stop(record.id); message.success('已撤销发布'); fetchData(); }
+    try { await ruleApi.stop(record.id); message.success('已撤销'); fetchData(); }
     catch (e: any) { message.error(e.message || '撤销失败'); }
   };
 
@@ -133,18 +138,36 @@ export default function RuleSemanticPage() {
       render: (dsl: string) => <InlineTagRefs dslContent={dsl} allTags={allTags} />,
     },
     { title: '发布状态', dataIndex: 'status', width: 90, render: (s: string) => <Tag color={publishStatusMap[s]?.color}>{publishStatusMap[s]?.text}</Tag> },
-    { title: '正式打标状态', dataIndex: 'runStatus', width: 110, render: (s: string, record: any) => record.status === 'PUBLISHED' || record.runStatus ? <Tag color={runStatusMap[s]?.color}>{runStatusMap[s]?.text || '-'}</Tag> : <span style={{ color: 'rgba(255,255,255,0.2)' }}>—</span> },
+    { title: '关联正式任务数', dataIndex: 'id', width: 120, render: (_: any, record: any) => <FormalTaskCountCell ruleId={record.id} /> },
     {
       title: '操作', width: 280,
       render: (_: any, record: any) => (
         <Space>
-          {record.status !== 'PUBLISHED' && <a className="action-link" onClick={() => openEdit(record)}>编辑</a>}
-          {record.status !== 'PUBLISHED' && <a className="action-link action-link-success" onClick={() => handlePublish(record)}>发布</a>}
-          {record.status === 'PUBLISHED' && <a className="action-link action-link-danger" onClick={() => handleUnpublish(record)}>撤销发布</a>}
-          <a className="action-link" onClick={() => openCopy(record)}>复制</a>
-          {record.status !== 'PUBLISHED' && !record.runStatus && (
-            <a className="action-link action-link-danger" onClick={async () => { try { await ruleApi.delete(record.id); message.success('删除成功'); fetchData(); } catch (e: any) { message.error(e.message || '删除失败'); } }}>删除</a>
-          )}
+          <ActionLink
+            onClick={() => openEdit(record)}>
+            编辑
+          </ActionLink>
+          <ActionLink success
+            disabled={record.status === 'PUBLISHED'}
+            disabledReason="规则已发布"
+            onClick={() => handlePublish(record)}>
+            发布
+          </ActionLink>
+          <ActionLink danger
+            disabled={record.status !== 'PUBLISHED'}
+            disabledReason="仅已发布的规则可撤销"
+            onClick={() => handleUnpublish(record)}>
+            撤销
+          </ActionLink>
+          <ActionLink onClick={() => openCopy(record)}>复制</ActionLink>
+          <ActionLink danger
+            disabled={record.status === 'PUBLISHED'}
+            disabledReason="已发布的规则不可删除，请先撤销发布"
+            onClick={() => {
+              Modal.confirm({ title: '确认删除', icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />, content: '删除后不可恢复，确认删除该规则？', okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true }, onOk: async () => { try { await ruleApi.delete(record.id); message.success('删除成功'); fetchData(); } catch (e: any) { message.error(e.message || '删除失败'); } } });
+            }}>
+            删除
+          </ActionLink>
         </Space>
       ),
     },
@@ -270,5 +293,36 @@ const DetailReferencedTags: React.FC<{ dslContent: string; allTags: any[] }> = (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
       {refs.map(t => <Tag key={t.id} color="cyan">{t.tagName}</Tag>)}
     </div>
+  );
+};
+
+/** 列表中显示关联正式任务数，点击弹窗显示详情 */
+const taskStatusColors: Record<string, string> = { INIT: 'default', RUNNING: 'processing', SUCCESS: 'success', FAILED: 'error' };
+const taskStatusTexts: Record<string, string> = { INIT: '待运行', RUNNING: '运行中', SUCCESS: '成功', FAILED: '失败' };
+const submitStatusTexts: Record<string, string> = { PENDING: '待提交', SUBMITTED: '已提交' };
+
+const FormalTaskCountCell: React.FC<{ ruleId: number }> = ({ ruleId }) => {
+  const [tasks, setTasks] = useState<any[] | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    ruleApi.getFormalTasks(ruleId).then((res: any) => setTasks(res.data || [])).catch(() => setTasks([]));
+  }, [ruleId]);
+
+  if (tasks === null) return <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>...</span>;
+  if (tasks.length === 0) return <span style={{ color: 'rgba(255,255,255,0.2)' }}>0</span>;
+
+  return (
+    <>
+      <a style={{ color: '#0ea5e9', fontWeight: 600, cursor: 'pointer' }} onClick={() => setModalOpen(true)}>{tasks.length}</a>
+      <Modal title="关联正式打标任务" open={modalOpen} onCancel={() => setModalOpen(false)} footer={null} width={600} maskClosable={false} destroyOnClose>
+        <Table rowKey="taskId" dataSource={tasks} size="small" pagination={false} columns={[
+          { title: '任务名称', dataIndex: 'taskName', width: 180 },
+          { title: '任务编号', dataIndex: 'taskNo', width: 140, render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+          { title: '运行状态', dataIndex: 'taskStatus', width: 100, render: (s: string) => <Tag color={taskStatusColors[s]}>{taskStatusTexts[s] || s}</Tag> },
+          { title: '提交状态', dataIndex: 'submitStatus', width: 100, render: (s: string) => <Tag color={s === 'SUBMITTED' ? 'processing' : 'default'}>{submitStatusTexts[s] || s || '-'}</Tag> },
+        ]} />
+      </Modal>
+    </>
   );
 };

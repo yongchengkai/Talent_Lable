@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Tree, Table, Input, Checkbox, Tag, Space, Empty } from 'antd';
 import { SearchOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
 import { employeeApi } from '@/services/api';
@@ -12,6 +12,7 @@ export interface ScopeValue {
 interface ScopeSelectorProps {
   value?: ScopeValue;
   onChange?: (value: ScopeValue) => void;
+  disabled?: boolean;
 }
 
 interface OrgNode {
@@ -22,7 +23,7 @@ interface OrgNode {
   children?: OrgNode[];
 }
 
-const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
+const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange, disabled = false }) => {
   const [treeData, setTreeData] = useState<OrgNode[]>([]);
   const [selectedOrgNode, setSelectedOrgNode] = useState<OrgNode | null>(null);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -70,34 +71,81 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
       const countAll = (nodes: any[]): number =>
         nodes.reduce((s: number, n: any) => s + (n.employeeCount || 0), 0);
       setTotalEmployeeCount(countAll(data));
+      // 自动选中第一个组织节点并加载员工
+      if (data.length > 0) {
+        const first = data[0];
+        setSelectedOrgNode(first);
+        if (first.orgId) {
+          loadEmployees(first.orgId, 1, '');
+        }
+      }
     }).catch(() => {});
   }, []);
 
-  // 初始化已选状态
+  // 标记是否为内部变更，避免 useEffect 循环
+  const internalChange = useRef(false);
+
+  // 当 value 从外部变化时同步内部状态（仅外部变更触发）
   useEffect(() => {
+    if (internalChange.current) {
+      internalChange.current = false;
+      return;
+    }
     if (value?.type === 'FULL') {
       setIsFullSelect(true);
+      setCheckedOrgKeys([]);
+      setCheckedEmpIds(new Set());
     } else if (value) {
       setIsFullSelect(false);
-      if (value.employeeIds?.length) {
-        setCheckedEmpIds(new Set(value.employeeIds));
+      setCheckedEmpIds(new Set(value.employeeIds || []));
+      // orgIds 回填到组织树 keys
+      if (value.orgIds?.length && treeData.length > 0) {
+        const keys: string[] = [];
+        const walk = (nodes: OrgNode[]) => {
+          for (const n of nodes) {
+            if (n.orgId && value.orgIds.includes(n.orgId)) keys.push(n.key);
+            if (n.children) walk(n.children);
+          }
+        };
+        walk(treeData);
+        setCheckedOrgKeys(keys);
+      } else {
+        setCheckedOrgKeys([]);
       }
+    } else {
+      setIsFullSelect(true);
+      setCheckedOrgKeys([]);
+      setCheckedEmpIds(new Set());
     }
-  }, []);
+  }, [value, treeData]);
 
   // 加载员工列表
   const loadEmployees = async (orgId: number, page = 1, keyword = '') => {
     setEmpLoading(true);
     try {
       const res: any = await employeeApi.page({ orgId, current: page, size: 20, keyword });
-      setEmployees(res.data?.records || []);
-      setEmpTotal(res.data?.total || 0);
+      const records = res.data?.records || [];
+      const total = res.data?.total || 0;
+      setEmployees(records);
+      setEmpTotal(total);
     } catch {
       setEmployees([]);
       setEmpTotal(0);
     }
     setEmpLoading(false);
   };
+
+  // 员工列表或选中状态变化时，同步组织树勾选状态
+  useEffect(() => {
+    if (isFullSelect || !selectedOrgNode?.key || employees.length === 0) return;
+    const allChecked = empTotal > 0 && empTotal === employees.length && employees.every(e => checkedEmpIds.has(e.id));
+    setCheckedOrgKeys(prev => {
+      const has = prev.includes(selectedOrgNode.key);
+      if (allChecked && !has) return [...prev, selectedOrgNode.key];
+      if (!allChecked && has) return prev.filter(k => k !== selectedOrgNode.key);
+      return prev;
+    });
+  }, [checkedEmpIds, employees, empTotal, selectedOrgNode, isFullSelect]);
 
   // 点击组织节点
   const handleSelectOrg = (selectedKeys: React.Key[], info: any) => {
@@ -113,9 +161,9 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
     }
   };
 
-  // 勾选组织
+  // 勾选组织（级联模式，checked 直接是 key 数组）
   const handleCheckOrg = (checked: any, info: any) => {
-    const keys = (checked as { checked: string[] }).checked || checked;
+    const keys = Array.isArray(checked) ? checked : (checked.checked || []);
     setCheckedOrgKeys(keys as string[]);
     emitChange(false, keys as string[], checkedEmpIds);
   };
@@ -126,12 +174,26 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
     if (checked) next.add(empId);
     else next.delete(empId);
     setCheckedEmpIds(next);
-    emitChange(false, checkedOrgKeys, next);
+
+    // 联动组织树：如果当前组织下所有员工都被选中，自动勾选组织节点；否则取消
+    let nextOrgKeys = [...checkedOrgKeys];
+    if (selectedOrgNode?.key) {
+      const allChecked = employees.length > 0 && empTotal === employees.length && employees.every(e => next.has(e.id));
+      if (allChecked && !nextOrgKeys.includes(selectedOrgNode.key)) {
+        nextOrgKeys.push(selectedOrgNode.key);
+      } else if (!allChecked && nextOrgKeys.includes(selectedOrgNode.key)) {
+        nextOrgKeys = nextOrgKeys.filter(k => k !== selectedOrgNode.key);
+      }
+      setCheckedOrgKeys(nextOrgKeys);
+    }
+
+    emitChange(false, nextOrgKeys, next);
   };
 
   // 全选切换
   const handleFullSelect = (checked: boolean) => {
     setIsFullSelect(checked);
+    internalChange.current = true;
     if (checked) {
       onChange?.({ type: 'FULL', orgIds: [], employeeIds: [] });
     } else {
@@ -141,6 +203,7 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
 
   // 发射变更
   const emitChange = (full: boolean, orgKeys: string[], empIds: Set<number>) => {
+    internalChange.current = true;
     if (full) {
       onChange?.({ type: 'FULL', orgIds: [], employeeIds: [] });
     } else {
@@ -171,7 +234,7 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
       render: (_: any, record: any) => (
         <Checkbox
           checked={isFullSelect || checkedEmpIds.has(record.id)}
-          disabled={isFullSelect}
+          disabled={isFullSelect || disabled}
           onChange={e => handleCheckEmp(record.id, e.target.checked)}
         />
       ),
@@ -196,7 +259,7 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
         borderBottom: '1px solid rgba(255,255,255,0.04)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Checkbox checked={isFullSelect} onChange={e => handleFullSelect(e.target.checked)}>
+          <Checkbox checked={isFullSelect} indeterminate={!isFullSelect && (checkedOrgKeys.length > 0 || checkedEmpIds.size > 0)} onChange={e => handleFullSelect(e.target.checked)} disabled={disabled}>
             <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>全员</span>
           </Checkbox>
           {totalEmployeeCount > 0 && (
@@ -228,13 +291,15 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ value, onChange }) => {
               <Tree
                 treeData={treeData}
                 checkable
-                checkStrictly
                 checkedKeys={checkedOrgKeys}
-                onCheck={handleCheckOrg}
+                selectedKeys={selectedOrgNode ? [selectedOrgNode.key] : []}
+                onCheck={disabled ? undefined : handleCheckOrg}
                 onSelect={handleSelectOrg}
+                disabled={disabled}
                 titleRender={(node: any) => renderTreeTitle(node as OrgNode)}
                 fieldNames={{ key: 'key', title: 'title', children: 'children' }}
                 style={{ background: 'transparent' }}
+                defaultExpandAll
               />
             )}
           </div>

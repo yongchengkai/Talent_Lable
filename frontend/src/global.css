@@ -271,6 +271,11 @@ body::before {
 .ant-table-tbody > tr:nth-child(9) { animation-delay: 0.27s; }
 .ant-table-tbody > tr:nth-child(10) { animation-delay: 0.30s; }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
 @keyframes rowSlideIn {
   from { opacity: 0; transform: translateX(-12px); }
   to { opacity: 1; transform: translateX(0); }

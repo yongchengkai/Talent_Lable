@@ -34,6 +34,8 @@ export const ruleApi = {
   update: (id: number, data: any) => request.put(`/tag-rules/${id}`, data),
   publish: (id: number) => request.post(`/tag-rules/${id}/publish`),
   stop: (id: number) => request.post(`/tag-rules/${id}/stop`),
+  rollback: (id: number) => request.post(`/tag-rules/${id}/rollback`),
+  getFormalTasks: (id: number) => request.get(`/tag-rules/${id}/formal-tasks`),
   copy: (id: number) => request.post(`/tag-rules/${id}/copy`),
   delete: (id: number) => request.delete(`/tag-rules/${id}`),
   getOutputTags: (id: number) => request.get(`/tag-rules/${id}/output-tags`),
@@ -45,10 +47,15 @@ export const taskApi = {
   page: (params: any) => request.get('/calc-tasks', { params }),
   getById: (id: number) => request.get(`/calc-tasks/${id}`),
   create: (data: any) => request.post('/calc-tasks', data),
+  update: (id: number, data: any) => request.put(`/calc-tasks/${id}`, data),
   run: (id: number) => request.post(`/calc-tasks/${id}/run`),
   submit: (id: number) => request.post(`/calc-tasks/${id}/submit`),
+  approve: (id: number) => request.post(`/calc-tasks/${id}/approve`),
+  reject: (id: number) => request.post(`/calc-tasks/${id}/reject`),
+  revoke: (id: number) => request.post(`/calc-tasks/${id}/revoke`),
   delete: (id: number) => request.delete(`/calc-tasks/${id}`),
   getRules: (id: number) => request.get(`/calc-tasks/${id}/rules`),
+  getResults: (id: number, params?: any) => request.get(`/calc-tasks/${id}/results`, { params }),
 };
 
 // AI 服务
@@ -113,5 +120,7 @@ export const docApi = {
 // 员工
 export const employeeApi = {
   page: (params: any) => request.get('/employees', { params }),
+  getById: (id: number) => request.get(`/employees/${id}`),
   orgTree: () => request.get('/employees/org-tree'),
+  tagResults: (params: any) => request.get('/employees/tag-results', { params }),
 };

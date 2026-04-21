@@ -1,9 +1,16 @@
 package com.talent.label.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.talent.label.common.BizException;
+import com.talent.label.domain.entity.CalcTaskRule;
+import com.talent.label.domain.entity.CalcTask;
+import com.talent.label.domain.entity.EmployeeTagResult;
 import com.talent.label.domain.entity.TagRule;
+import com.talent.label.mapper.CalcTaskMapper;
+import com.talent.label.mapper.CalcTaskRuleMapper;
+import com.talent.label.mapper.EmployeeTagResultMapper;
 import com.talent.label.mapper.TagRuleMapper;
 import com.talent.label.service.TagRuleService;
 import lombok.RequiredArgsConstructor;
@@ -11,12 +18,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 public class TagRuleServiceImpl implements TagRuleService {
 
     private final TagRuleMapper ruleMapper;
+    private final EmployeeTagResultMapper tagResultMapper;
+    private final CalcTaskRuleMapper taskRuleMapper;
+    private final CalcTaskMapper taskMapper;
 
     @Override
     public Page<TagRule> page(int current, int size, String keyword, String status, String ruleType) {
@@ -32,7 +43,12 @@ public class TagRuleServiceImpl implements TagRuleService {
             wrapper.eq(TagRule::getRuleType, ruleType);
         }
         wrapper.orderByDesc(TagRule::getCreatedAt);
-        return ruleMapper.selectPage(new Page<>(current, size), wrapper);
+        Page<TagRule> page = ruleMapper.selectPage(new Page<>(current, size), wrapper);
+        // 填充每条规则的正式任务引用数
+        for (TagRule rule : page.getRecords()) {
+            rule.setFormalTaskCount(countFormalTaskReferences(rule.getId()));
+        }
+        return page;
     }
 
     @Override
@@ -71,8 +87,19 @@ public class TagRuleServiceImpl implements TagRuleService {
     @Override
     public TagRule update(Long id, TagRule rule) {
         TagRule existing = getById(id);
-        if ("PUBLISHED".equals(existing.getStatus())) {
-            throw new BizException("已发布的规则不可编辑，请复制后修订");
+        // 检查是否被正式任务运行成功或运行中，如果是则不可编辑
+        List<CalcTaskRule> taskRules = taskRuleMapper.selectList(
+                new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getRuleId, id));
+        if (!taskRules.isEmpty()) {
+            List<Long> taskIds = taskRules.stream().map(CalcTaskRule::getTaskId).toList();
+            Long blockedCount = taskMapper.selectCount(
+                    new LambdaQueryWrapper<CalcTask>()
+                            .in(CalcTask::getId, taskIds)
+                            .eq(CalcTask::getTaskMode, "FORMAL")
+                            .in(CalcTask::getTaskStatus, List.of("RUNNING", "SUCCESS")));
+            if (blockedCount > 0) {
+                throw new BizException("该规则已被正式打标任务使用（运行中或已成功），不可编辑。请先撤销相关任务后再编辑。");
+            }
         }
         existing.setRuleName(rule.getRuleName());
         existing.setRuleType(rule.getRuleType());
@@ -100,10 +127,90 @@ public class TagRuleServiceImpl implements TagRuleService {
     public void stop(Long id) {
         TagRule rule = getById(id);
         if (!"PUBLISHED".equals(rule.getStatus())) {
-            throw new BizException("仅已发布的规则可撤销发布");
+            throw new BizException("仅已发布的规则可撤销");
         }
+
+        // 检查是否被正式打标任务引用
+        List<CalcTaskRule> taskRules = taskRuleMapper.selectList(
+                new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getRuleId, id));
+        if (!taskRules.isEmpty()) {
+            List<Long> taskIds = taskRules.stream().map(CalcTaskRule::getTaskId).toList();
+            Long formalCount = taskMapper.selectCount(
+                    new LambdaQueryWrapper<CalcTask>()
+                            .in(CalcTask::getId, taskIds)
+                            .eq(CalcTask::getTaskMode, "FORMAL"));
+            if (formalCount > 0) {
+                throw new BizException("该规则已被正式打标任务引用，不可撤销");
+            }
+        }
+
         rule.setStatus("UNPUBLISHED");
         ruleMapper.updateById(rule);
+
+        // 撤销时，该规则产出的当前有效标签结果一并失效
+        tagResultMapper.update(null, new LambdaUpdateWrapper<EmployeeTagResult>()
+                .eq(EmployeeTagResult::getSourceRuleId, id)
+                .eq(EmployeeTagResult::getValidFlag, true)
+                .set(EmployeeTagResult::getValidFlag, false));
+    }
+
+    @Override
+    public void rollback(Long id) {
+        TagRule rule = getById(id);
+        if ("RUNNING".equals(rule.getStatus())) {
+            throw new BizException("规则正在运行中，不可回退");
+        }
+
+        // 检查是否有已提交审批的任务关联了这条规则
+        List<CalcTaskRule> taskRules = taskRuleMapper.selectList(
+                new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getRuleId, id));
+        if (!taskRules.isEmpty()) {
+            List<Long> taskIds = taskRules.stream().map(CalcTaskRule::getTaskId).toList();
+            Long submittedCount = taskMapper.selectCount(
+                    new LambdaQueryWrapper<CalcTask>()
+                            .in(CalcTask::getId, taskIds)
+                            .eq(CalcTask::getSubmitStatus, "SUBMITTED"));
+            if (submittedCount > 0) {
+                throw new BizException("该规则关联的任务已提交审批，请先回退任务后再回退规则");
+            }
+        }
+
+        // 回退：状态改为未发布，清空发布时间
+        rule.setStatus("UNPUBLISHED");
+        rule.setPublishedAt(null);
+        ruleMapper.updateById(rule);
+
+        // 该规则产出的所有有效标签结果失效
+        tagResultMapper.update(null, new LambdaUpdateWrapper<EmployeeTagResult>()
+                .eq(EmployeeTagResult::getSourceRuleId, id)
+                .eq(EmployeeTagResult::getValidFlag, true)
+                .set(EmployeeTagResult::getValidFlag, false));
+    }
+
+    @Override
+    public List<Map<String, Object>> getFormalTasks(Long id) {
+        List<CalcTaskRule> taskRules = taskRuleMapper.selectList(
+                new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getRuleId, id));
+        if (taskRules.isEmpty()) return List.of();
+
+        List<Long> taskIds = taskRules.stream().map(CalcTaskRule::getTaskId).toList();
+        List<CalcTask> tasks = taskMapper.selectList(
+                new LambdaQueryWrapper<CalcTask>()
+                        .in(CalcTask::getId, taskIds)
+                        .eq(CalcTask::getTaskMode, "FORMAL"));
+        if (tasks.isEmpty()) return List.of();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (CalcTask task : tasks) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("taskId", task.getId());
+            m.put("taskNo", task.getTaskNo());
+            m.put("taskName", task.getTaskName());
+            m.put("taskStatus", task.getTaskStatus());
+            m.put("submitStatus", task.getSubmitStatus());
+            result.add(m);
+        }
+        return result;
     }
 
     @Override
@@ -129,9 +236,28 @@ public class TagRuleServiceImpl implements TagRuleService {
     @Override
     public void delete(Long id) {
         TagRule rule = getById(id);
+        // 已发布的规则不可删除，需先撤销发布
         if ("PUBLISHED".equals(rule.getStatus())) {
             throw new BizException("已发布的规则不可删除，请先撤销发布");
         }
         ruleMapper.deleteById(id);
+    }
+
+    /** 检查规则是否被正式打标任务引用 */
+    private boolean hasFormalTaskReference(Long ruleId) {
+        return countFormalTaskReferences(ruleId) > 0;
+    }
+
+    /** 统计规则被正式打标任务引用的数量 */
+    private long countFormalTaskReferences(Long ruleId) {
+        List<CalcTaskRule> taskRules = taskRuleMapper.selectList(
+                new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getRuleId, ruleId));
+        if (taskRules.isEmpty()) return 0;
+        List<Long> taskIds = taskRules.stream().map(CalcTaskRule::getTaskId).toList();
+        Long formalCount = taskMapper.selectCount(
+                new LambdaQueryWrapper<CalcTask>()
+                        .in(CalcTask::getId, taskIds)
+                        .eq(CalcTask::getTaskMode, "FORMAL"));
+        return formalCount != null ? formalCount : 0;
     }
 }

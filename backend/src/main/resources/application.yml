@@ -7,7 +7,7 @@ spring:
   application:
     name: talent-label
   datasource:
-    url: jdbc:postgresql://localhost:5432/talent_label
+    url: jdbc:postgresql://localhost:5432/talent_label?stringtype=unspecified
     username: talent
     password: talent123
     driver-class-name: org.postgresql.Driver

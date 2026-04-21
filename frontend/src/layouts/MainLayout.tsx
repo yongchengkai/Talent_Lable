@@ -38,10 +38,12 @@ const PAGE_TITLES: Record<string, string> = {
   '/app/rules/semantic': '智能打标规则',
   '/app/tasks/simulation': '模拟打标',
   '/app/tasks/formal': '正式打标',
+  '/app/tag-results': '标签总览',
   '/app/planning-agent': '标签规划',
   '/app/skill-management': '技能管理',
   '/app/model-config': '模型配置',
   '/app/permissions': '权限管理',
+  '/app/approvals': '打标审批',
   '/app/product-docs': '产品文档',
 };
 
@@ -80,13 +82,15 @@ const menuItems = [
       { key: '/app/rules/semantic', label: '智能打标规则', icon: <RobotOutlined /> },
       { key: '/app/tasks/simulation', label: '模拟打标', icon: <ExperimentOutlined /> },
       { key: '/app/tasks/formal', label: '正式打标', icon: <CheckCircleOutlined /> },
+      { key: '/app/tag-results', label: '标签总览', icon: <TagOutlined /> },
     ],
   },
   {
-    key: 'result-perm',
-    label: '结果与权限',
+    key: 'approval-perm',
+    label: '审批与权限',
     icon: <SafetyOutlined />,
     children: [
+      { key: '/app/approvals', label: '打标审批', icon: <CheckCircleOutlined /> },
       { key: '/app/permissions', label: '权限管理', icon: <LockOutlined /> },
     ],
   },
@@ -225,7 +229,7 @@ export default function MainLayout() {
         <Menu
           mode="inline"
           selectedKeys={[location.pathname]}
-          defaultOpenKeys={['ai-group', 'tag-mgmt', 'rule-task', 'result-perm', 'docs']}
+          defaultOpenKeys={['ai-group', 'tag-mgmt', 'rule-task', 'approval-perm', 'docs']}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
           style={{ borderRight: 0, background: 'transparent' }}

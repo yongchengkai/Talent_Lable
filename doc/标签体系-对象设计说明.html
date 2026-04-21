@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>标签体系-对象设计说明（PRD原文）</title>
+  <style>
+    :root {
+      --bg:#f6f8fc;
+      --card:#ffffff;
+      --text:#1f2937;
+      --muted:#6b7280;
+      --line:#e5e7eb;
+      --brand:#2563eb;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:"Microsoft YaHei","PingFang SC",sans-serif; line-height:1.65; }
+    .wrap { width:min(1200px,94vw); margin:18px auto 28px; }
+    .hero,.card { background:var(--card); border:1px solid var(--line); border-radius:12px; }
+    .hero { padding:16px 18px; margin-bottom:12px; }
+    .card { padding:14px; }
+    .list { display:grid; grid-template-columns:1fr; gap:10px; }
+    h1 { margin:0 0 8px; font-size:26px; }
+    h2 { margin:0 0 10px; font-size:20px; color:var(--brand); }
+    h3 { margin:0 0 6px; font-size:16px; }
+    p { margin:0; }
+    .muted { color:var(--muted); font-size:13px; }
+    ul { margin:6px 0 0; padding-left:20px; }
+    li { margin:6px 0; }
+    code { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:4px; padding:0 4px; font-family:Consolas,Monaco,monospace; font-size:12px; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <h1>标签体系-对象设计说明</h1>
+      <p class="muted" style="margin-top:6px;">来源：<code>doc/人才打标系统-PRD.md</code></p>
+    </section>
+    <section class="list">
+      <article class="card">
+        <h2>1. 标签类目</h2>
+        <ul>
+          <li>标签类目不是为了展示分组，而是为了建立可治理的标签资产结构</li>
+          <li>没有类目时，标签会以离散集合存在，后续的查询、筛选、导出、权限控制和运营维护都会直接落到单标签层面，治理成本高</li>
+          <li>有了类目后，系统可以按业务域组织标签，保证标签资产长期可维护、可理解、可演进</li>
+          <li>类目为标签迁移、类目停用、类目合并等治理动作提供统一承载对象，避免在标签数量增长后逐条人工处理</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h2>2. 标签实体</h2>
+        <ul>
+          <li>避免同义标签泛滥 — 如果规则或 AI 能临时生成标签，就会出现 985、985院校、985高校 这种同义重复，无法统一管理</li>
+          <li>保证标签是标准化资产 — 标签不是规则执行时临时拼接的字符串，而是系统里的标准化资产，结构化规则和 AI 语义规则都复用同一套标签体系</li>
+          <li>可控的生命周期管理 — 标签有启用/停用状态，停用后不会出现在规则编辑的选择面板中，防止新规则引用即将淘汰的标签；被已发布规则引用的标签不能停用</li>
+          <li>结果可追溯 — 标签结果通过 tagId 关联到标签定义，如果标签是临时生成的就无法做证据链追溯和历史回溯</li>
+          <li>支持标签合并治理 — 先定义才能做源标签→目标标签的合并迁移，包括规则引用迁移、结果迁移等</li>
+        </ul>
+        <p style="margin-top:8px;"><strong>一句话总结：</strong>先定义再引用，才能保证标签不重复、可管控、可追溯。</p>
+      </article>
+      <article class="card">
+        <h2>3. 条件规则和智能规则（适用场景不同）</h2>
+        <p><strong>规则类型:</strong> 条件打标规则（CR_）</p>
+        <p><strong>适用场景:</strong> 明确、可量化的条件判断</p>
+        <p><strong>典型例子:</strong> 职级≥P7、任职时长&gt;3年、绩效为A</p>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:10px 0;" />
+        <p><strong>规则类型:</strong> 智能打标规则（AR_）</p>
+        <p><strong>适用场景:</strong> 语义理解、长文本抽取、企业特有口径归纳</p>
+        <p><strong>典型例子:</strong> 985/211院校识别、专业方向、技术方向、行业背景、稳定性强、基层历练</p>
+        <p style="margin-top:8px;"><strong>一句话区分（PRD 2.3）:</strong> 确定数值和指标的条件，优先走结构化规则；需要语义理解、文本抽取或企业特有含义归纳的结果，优先走 AI 语义规则。</p>
+        <p style="margin-top:8px;">本质上是同一个规则体系的两种执行方式：一种靠确定性条件匹配，一种靠 LLM 语义理解，覆盖不同类型的打标需求。</p>
+      </article>
+      <article class="card">
+        <h2>4. 模拟打标与正式打标（共同点与区别）</h2>
+        <h3>为什么要区分</h3>
+        <ol>
+          <li>用途不同：模拟是“预演对比”，正式是“生产入库”。</li>
+          <li>风险控制不同：正式任务只允许用已发布规则，模拟不受发布状态限制。</li>
+          <li>生效链路不同：正式任务要走提交/审批，审批通过后才真正生效；模拟结果永不生效。</li>
+        </ol>
+
+        <h3 style="margin-top:10px;">共同点</h3>
+        <ol>
+          <li>都属于“执行任务”，都会运行规则并产出标签结果。</li>
+          <li>都需要配置打标范围（全员/自定义）。</li>
+          <li>都支持查看结果与证据（用于验证）。</li>
+        </ol>
+
+        <h3 style="margin-top:10px;">核心区别</h3>
+        <ol>
+          <li>数据写入：模拟不写正式数据；正式在成功并提交后写入正式数据。</li>
+          <li>规则准入：模拟可用于任意状态规则；正式仅已发布规则可选。</li>
+          <li>状态治理：正式有 PENDING/SUBMITTED/APPROVED/REJECTED 提交流转；模拟没有审批生效链。</li>
+          <li>结果可见性：只有审批通过的正式结果（validFlag=true）才在员工侧生效并进入总览；模拟和未审批正式结果不进入总览。</li>
+        </ol>
+      </article>
+      
+    </section>
+  </main>
+</body>
+</html>

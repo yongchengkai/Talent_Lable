@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Menu, Button, message, Spin } from 'antd';
-import { FileTextOutlined, EditOutlined, SaveOutlined, EyeOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useRef } from 'react';
+import { Menu, Button, message, Spin, Modal } from 'antd';
+import { FileTextOutlined, EditOutlined, SaveOutlined, EyeOutlined, FullscreenOutlined, CloseOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { docApi } from '@/services/api';
@@ -18,6 +18,7 @@ const ProductDocs: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollTopRef = useRef(0);
@@ -67,6 +68,28 @@ const ProductDocs: React.FC = () => {
   useEffect(() => { loadDocList(); }, []);
   useEffect(() => { if (activeFile) loadDoc(activeFile); }, [activeFile]);
 
+  const isHtml = activeFile.toLowerCase().endsWith('.html');
+  const displayName = docs.find(d => d.filename === activeFile)?.name || activeFile;
+
+  /** 渲染文档内容（内联区和弹窗共用） */
+  const renderContent = (inModal?: boolean) => {
+    if (loading) return <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>;
+    if (isHtml) {
+      return (
+        <iframe
+          srcDoc={content}
+          style={{ width: '100%', height: '100%', border: 'none', background: '#fff' }}
+          sandbox="allow-same-origin allow-scripts"
+        />
+      );
+    }
+    return (
+      <div className="markdown-body markdown-body-dark doc-reader" style={inModal ? { padding: '24px 40px' } : undefined}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 180px)', gap: 0 }}>
       {/* 左侧文档列表 */}
@@ -105,6 +128,9 @@ const ProductDocs: React.FC = () => {
             {activeFile || '请选择文档'}
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
+            {!editing && content && (
+              <Button size="small" icon={<FullscreenOutlined />} onClick={() => setFullscreen(true)}>全屏</Button>
+            )}
             {editing ? (
               <>
                 <Button size="small" icon={<EyeOutlined />} onClick={() => {
@@ -126,7 +152,7 @@ const ProductDocs: React.FC = () => {
         </div>
 
         {/* 内容区 */}
-        <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: editing ? 0 : '24px 40px' }}>
+        <div ref={scrollRef} style={{ flex: 1, overflow: isHtml && !editing ? 'hidden' : 'auto', padding: editing ? 0 : isHtml ? 0 : '24px 40px' }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
           ) : editing ? (
@@ -143,13 +169,42 @@ const ProductDocs: React.FC = () => {
               }}
               spellCheck={false}
             />
-          ) : (
-            <div className="markdown-body markdown-body-dark doc-reader">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-            </div>
-          )}
+          ) : renderContent()}
         </div>
       </div>
+
+      {/* 全屏浮动框 */}
+      <Modal
+        title={null}
+        open={fullscreen}
+        onCancel={() => setFullscreen(false)}
+        footer={null}
+        closable={false}
+        width="100vw"
+        destroyOnClose
+        maskClosable
+        styles={{
+          body: { height: '100vh', padding: 0, overflow: 'hidden', position: 'relative' },
+          content: { padding: 0, borderRadius: 0 },
+          mask: { background: 'rgba(0,0,0,0.85)' },
+        }}
+        style={{ top: 0, maxWidth: '100vw', margin: 0, padding: 0 }}
+      >
+        <Button
+          type="text"
+          icon={<CloseOutlined />}
+          onClick={() => setFullscreen(false)}
+          style={{
+            position: 'absolute', top: 8, right: 12, zIndex: 10,
+            color: 'rgba(255,255,255,0.5)', fontSize: 16,
+            background: 'rgba(0,0,0,0.3)', borderRadius: 6,
+            width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        />
+        <div style={{ width: '100%', height: '100%', overflow: isHtml ? 'hidden' : 'auto' }}>
+          {renderContent(true)}
+        </div>
+      </Modal>
 
       <style>{`
         .doc-reader {

@@ -34,6 +34,8 @@ public class DocController {
         return docDir;
     }
 
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(".md", ".html");
+
     @GetMapping
     public R<List<Map<String, String>>> list() {
         Path dir = getDocsDir();
@@ -49,12 +51,23 @@ public class DocController {
         List<Map<String, String>> docs = new ArrayList<>();
         try (Stream<Path> files = Files.list(dir)) {
             docs = files
-                    .filter(p -> p.toString().endsWith(".md"))
+                    .filter(p -> {
+                        String name = p.getFileName().toString().toLowerCase();
+                        return SUPPORTED_EXTENSIONS.stream().anyMatch(name::endsWith);
+                    })
                     .sorted()
                     .map(p -> {
+                        String fname = p.getFileName().toString();
+                        String displayName = fname;
+                        for (String ext : SUPPORTED_EXTENSIONS) {
+                            if (displayName.toLowerCase().endsWith(ext)) {
+                                displayName = displayName.substring(0, displayName.length() - ext.length());
+                                break;
+                            }
+                        }
                         Map<String, String> item = new LinkedHashMap<>();
-                        item.put("filename", p.getFileName().toString());
-                        item.put("name", p.getFileName().toString().replace(".md", ""));
+                        item.put("filename", fname);
+                        item.put("name", displayName);
                         return item;
                     })
                     .collect(Collectors.toList());
@@ -66,7 +79,9 @@ public class DocController {
 
     @GetMapping("/{filename:.+}")
     public R<Map<String, String>> read(@PathVariable String filename) {
-        if (!filename.endsWith(".md")) {
+        String fname = filename;
+        boolean hasExt = SUPPORTED_EXTENSIONS.stream().anyMatch(ext -> fname.toLowerCase().endsWith(ext));
+        if (!hasExt) {
             filename += ".md";
         }
         Path file = getDocsDir().resolve(filename);
@@ -91,7 +106,9 @@ public class DocController {
 
     @PutMapping("/{filename:.+}")
     public R<Void> save(@PathVariable String filename, @RequestBody Map<String, String> body) {
-        if (!filename.endsWith(".md")) {
+        String fname = filename;
+        boolean hasExt = SUPPORTED_EXTENSIONS.stream().anyMatch(ext -> fname.toLowerCase().endsWith(ext));
+        if (!hasExt) {
             filename += ".md";
         }
         String content = body.get("content");

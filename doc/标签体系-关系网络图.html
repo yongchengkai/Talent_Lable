@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>标签体系-关系网络图</title>
+  <style>
+    :root {
+      --bg1: #eef7ff;
+      --bg2: #f7fbff;
+      --ink: #10253d;
+      --muted: #60758a;
+      --line: #d7e5f3;
+      --asset: #0b63f6;
+      --rule: #0ea5a5;
+      --task: #f97316;
+      --gate: #0f9d58;
+      --result: #8b5cf6;
+      --person: #0284c7;
+      --edge: #7e90a6;
+      --edge-active: #0b63f6;
+      --glow: 0 14px 28px rgba(16, 37, 61, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 5%, #dff0ff 0, transparent 34%),
+        radial-gradient(circle at 90% 10%, #ffeede 0, transparent 28%),
+        radial-gradient(circle at 70% 95%, #e8fff0 0, transparent 30%),
+        linear-gradient(180deg, var(--bg2), var(--bg1));
+      font-family: "Source Han Sans CN", "Microsoft YaHei", "PingFang SC", sans-serif;
+    }
+
+    .wrap {
+      width: min(1400px, 96vw);
+      margin: 18px auto 28px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .hero {
+      border-radius: 16px;
+      color: #fff;
+      padding: 16px 18px;
+      background: linear-gradient(135deg, #0b63f6, #00a6d9 55%, #21c45f);
+      box-shadow: 0 16px 30px rgba(11, 99, 246, 0.3);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: -80px -120px auto auto;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.16);
+      filter: blur(10px);
+    }
+
+    .hero h1 {
+      margin: 0 0 6px;
+      font-size: 26px;
+      letter-spacing: .02em;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero p {
+      margin: 0;
+      font-size: 13px;
+      opacity: .95;
+      position: relative;
+      z-index: 1;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--glow);
+    }
+
+    .card h2 {
+      margin: 0;
+      padding: 11px 14px;
+      font-size: 18px;
+      border-bottom: 1px solid var(--line);
+      background: #f8fbff;
+    }
+
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 10px 14px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfdff;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 3px 9px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .stage-wrap {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0;
+      min-height: 820px;
+    }
+
+    .stage {
+      position: relative;
+      overflow: auto;
+      background:
+        linear-gradient(0deg, rgba(215, 229, 243, .28) 1px, transparent 1px) 0 0 / 100% 30px,
+        linear-gradient(90deg, rgba(215, 229, 243, .28) 1px, transparent 1px) 0 0 / 30px 100%;
+    }
+
+    .canvas {
+      position: relative;
+      width: 1320px;
+      height: 820px;
+    }
+
+    svg.edges {
+      position: absolute;
+      inset: 0;
+      width: 1320px;
+      height: 820px;
+      pointer-events: none;
+    }
+
+    .edge-path {
+      fill: none;
+      stroke: var(--edge);
+      stroke-width: 2.4;
+      marker-end: url(#arrow);
+      opacity: .84;
+      transition: .2s ease;
+      stroke-dasharray: 7 6;
+      animation: edgeFlow 2.4s linear infinite;
+    }
+
+    .edge-path.solid {
+      stroke-dasharray: none;
+      animation: none;
+    }
+
+    .edge-label {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid #c8d6e6;
+      background: #fff;
+      color: #3f556e;
+      box-shadow: 0 4px 10px rgba(16, 37, 61, .07);
+      transition: .2s ease;
+      pointer-events: none;
+    }
+
+    .edge-note {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      font-size: 11px;
+      color: #9a4d00;
+      background: #fff3de;
+      border: 1px solid #ffd6a3;
+      border-radius: 6px;
+      padding: 1px 6px;
+      transition: .2s ease;
+      pointer-events: none;
+    }
+
+    .node {
+      position: absolute;
+      width: 210px;
+      min-height: 94px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow: 0 12px 24px rgba(16, 37, 61, 0.1);
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease;
+    }
+
+    .node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 28px rgba(16, 37, 61, 0.16);
+    }
+
+    .node h3 {
+      margin: 0 0 4px;
+      font-size: 14px;
+    }
+
+    .node p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .node .type {
+      display: inline-block;
+      margin-bottom: 5px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .01em;
+      border: 1px solid currentColor;
+      opacity: .9;
+      background: #fff;
+    }
+
+    .asset { border-left: 4px solid var(--asset); }
+    .asset .type { color: var(--asset); }
+    .rule { border-left: 4px solid var(--rule); }
+    .rule .type { color: var(--rule); }
+    .task { border-left: 4px solid var(--task); }
+    .task .type { color: var(--task); }
+    .gate { border-left: 4px solid var(--gate); }
+    .gate .type { color: var(--gate); }
+    .result { border-left: 4px solid var(--result); }
+    .result .type { color: var(--result); }
+    .person { border-left: 4px solid var(--person); }
+    .person .type { color: var(--person); }
+
+    .node.dim,
+    .edge-path.dim,
+    .edge-label.dim,
+    .edge-note.dim {
+      opacity: .18;
+    }
+
+    .node.active {
+      outline: 2px solid var(--edge-active);
+      box-shadow: 0 0 0 6px rgba(11, 99, 246, .12), 0 14px 28px rgba(16, 37, 61, .18);
+    }
+
+    .edge-path.active {
+      stroke: var(--edge-active);
+      opacity: 1;
+      stroke-width: 3.2;
+      stroke-dasharray: none;
+      animation: none;
+    }
+
+    .edge-label.active {
+      border-color: #86b8ff;
+      color: #0b63f6;
+      box-shadow: 0 6px 14px rgba(11, 99, 246, .18);
+      opacity: 1;
+    }
+
+    .side {
+      display: none;
+      border-left: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff, #f7fbff);
+      padding: 12px;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: #27435f;
+    }
+
+    .panel p,
+    .panel li {
+      margin: 0;
+      font-size: 12px;
+      color: #4a5f75;
+      line-height: 1.45;
+    }
+
+    .panel ul {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 4px;
+    }
+
+    @media (max-width: 1240px) {
+      .stage-wrap {
+        grid-template-columns: 1fr;
+      }
+      .side {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+    }
+
+    @keyframes edgeFlow {
+      to { stroke-dashoffset: -26; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <h1>标签体系-关系网络图（交互版）</h1>
+      <p>点击任意节点，高亮其上下游关系与基数（1:1 / 1:N / N:1 / N:N）。</p>
+    </section>
+
+    <section class="card">
+      <h2>模型关系网络</h2>
+      <div class="legend">
+        <span class="pill"><span class="dot" style="background:var(--asset)"></span>资产：类目/标签</span>
+        <span class="pill"><span class="dot" style="background:var(--rule)"></span>规则：条件/智能</span>
+        <span class="pill"><span class="dot" style="background:var(--task)"></span>任务：模拟/正式</span>
+        <span class="pill"><span class="dot" style="background:var(--gate)"></span>审批门</span>
+        <span class="pill"><span class="dot" style="background:var(--result)"></span>结果落库</span>
+        <span class="pill"><span class="dot" style="background:var(--person)"></span>员工模型</span>
+      </div>
+
+      <div class="stage-wrap">
+        <div class="stage">
+          <div class="canvas" id="canvas">
+            <svg class="edges" id="edges" viewBox="0 0 1320 820" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                  <path d="M0,0 L10,5 L0,10 Z" fill="#7e90a6"></path>
+                </marker>
+              </defs>
+            </svg>
+          </div>
+        </div>
+
+        <aside class="side">
+          <div class="panel">
+            <h3>阅读提示</h3>
+            <p>默认显示全量关系。点击节点后，将聚焦该节点直接相关的对象与连线。</p>
+          </div>
+          <div class="panel">
+            <h3>当前选中</h3>
+            <p id="focusTitle">未选中节点</p>
+            <p id="focusDesc" style="margin-top:6px;">请点击图中节点查看它与其他模型的关系。</p>
+          </div>
+          <div class="panel">
+            <h3>直接关系</h3>
+            <ul id="focusLinks">
+              <li>未选中节点时展示全量网络。</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const NODE_W = 210;
+    const NODE_H = 94;
+
+    const nodes = [
+      { id: "category", title: "标签类目", type: "asset", x: 70, y: 90, desc: "对标签进行业务分类与治理承载。" },
+      { id: "tag", title: "标签实体", type: "asset", x: 300, y: 250, desc: "规则统一输出目标，标准化标签资产。" },
+      { id: "rule_cr", title: "条件打标规则（CR_）", type: "rule", x: 570, y: 90, desc: "明确、可量化条件判断。" },
+      { id: "rule_ai", title: "智能打标规则（AR_）", type: "rule", x: 570, y: 380, desc: "语义理解、文本抽取与口径归纳。" },
+      { id: "task_sim", title: "模拟打标任务", type: "task", x: 250, y: 570, desc: "预演对比，不写正式结果库。" },
+      { id: "task_formal", title: "正式打标任务", type: "task", x: 870, y: 250, desc: "生产任务，提交后进入审批链。" },
+      { id: "approval", title: "审批", type: "gate", x: 1088, y: 90, desc: "通过后结果生效，驳回需重跑。" },
+      { id: "tag_result", title: "标签结果", type: "result", x: 830, y: 600, desc: "通过审批后写入，validFlag=true。" },
+      { id: "employee", title: "员工模型", type: "person", x: 1080, y: 520, desc: "一个员工可有多个标签。" }
+    ];
+
+    const edges = [
+      { id: "e1", from: "category", to: "tag", card: "1:N", note: "一个类目含多个标签", style: "solid", curve: -12 },
+      { id: "e2", from: "tag", to: "rule_cr", card: "N:N", note: "标签可被多条规则引用", style: "dash", curve: 26 },
+      { id: "e3", from: "tag", to: "rule_ai", card: "N:N", note: "AI规则同样引用标签", style: "dash", curve: -26 },
+      { id: "e4", from: "rule_cr", to: "task_sim", card: "N:N", note: "模拟可选多规则", style: "dash", curve: -48 },
+      { id: "e5", from: "rule_ai", to: "task_sim", card: "N:N", note: "模拟支持两类规则", style: "dash", curve: 32 },
+      { id: "e6", from: "rule_cr", to: "task_formal", card: "N:N", note: "正式任务可选多规则", style: "dash", curve: 38 },
+      { id: "e7", from: "rule_ai", to: "task_formal", card: "N:N", note: "正式支持智能规则", style: "dash", curve: -34 },
+      { id: "e8", from: "task_formal", to: "approval", card: "1:1", note: "一条正式任务对应一次审批流", style: "solid", curve: 10 },
+      { id: "e9", from: "approval", to: "tag_result", card: "1:N", note: "通过后生成多条结果", style: "solid", curve: 24 },
+      { id: "e10", from: "task_sim", to: "tag_result", card: "0", note: "模拟不写正式结果", style: "dash", curve: -16 },
+      { id: "e11", from: "tag", to: "tag_result", card: "1:N", note: "一个标签对应多条结果记录", style: "solid", curve: -58 },
+      { id: "e12", from: "employee", to: "tag_result", card: "1:N", note: "一个员工对应多条标签结果", style: "solid", curve: 6 },
+      { id: "e13", from: "employee", to: "tag", card: "N:N", note: "逻辑上员工与标签为多对多", style: "dash", curve: -180 }
+    ];
+
+    const canvas = document.getElementById("canvas");
+    const svg = document.getElementById("edges");
+
+    function nodeCenter(id) {
+      const n = nodes.find(x => x.id === id);
+      return { x: n.x + NODE_W / 2, y: n.y + NODE_H / 2 };
+    }
+
+    function renderNodes() {
+      nodes.forEach(n => {
+        const el = document.createElement("article");
+        el.className = `node ${n.type}`;
+        el.dataset.node = n.id;
+        el.style.left = `${n.x}px`;
+        el.style.top = `${n.y}px`;
+        el.innerHTML = `
+          <span class="type">${{
+            asset: "资产",
+            rule: "规则",
+            task: "任务",
+            gate: "审批",
+            result: "结果",
+            person: "模型"
+          }[n.type]}</span>
+          <h3>${n.title}</h3>
+          <p>${n.desc}</p>
+        `;
+        canvas.appendChild(el);
+      });
+    }
+
+    function curvePath(a, b, bend = 0.24, curve = 0) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const c1x = a.x + dx * bend + nx * curve;
+      const c1y = a.y + dy * bend + ny * curve;
+      const c2x = b.x - dx * bend + nx * curve;
+      const c2y = b.y - dy * bend + ny * curve;
+      return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${b.x} ${b.y}`;
+    }
+
+    function renderEdges() {
+      edges.forEach(e => {
+        const from = nodeCenter(e.from);
+        const to = nodeCenter(e.to);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const curve = e.curve || 0;
+        path.setAttribute("d", curvePath(from, to, 0.24, curve));
+        path.setAttribute("class", `edge-path ${e.style === "solid" ? "solid" : ""}`);
+        path.dataset.edge = e.id;
+        svg.appendChild(path);
+
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+        const mx = (from.x + to.x) / 2 + nx * curve * 0.58;
+        const my = (from.y + to.y) / 2 + ny * curve * 0.58 - 12;
+
+        const badge = document.createElement("div");
+        badge.className = "edge-label";
+        badge.dataset.edge = e.id;
+        badge.style.left = `${mx}px`;
+        badge.style.top = `${my}px`;
+        badge.textContent = e.card;
+        canvas.appendChild(badge);
+
+        const note = document.createElement("div");
+        note.className = "edge-note";
+        note.dataset.edge = e.id;
+        note.style.left = `${mx}px`;
+        note.style.top = `${my + 18}px`;
+        note.textContent = e.note;
+        canvas.appendChild(note);
+      });
+    }
+
+    function focusNode(nodeId) {
+      const nodeEls = [...canvas.querySelectorAll(".node")];
+      const edgeEls = [...svg.querySelectorAll(".edge-path")];
+      const labelEls = [...canvas.querySelectorAll(".edge-label, .edge-note")];
+
+      if (!nodeId) {
+        nodeEls.forEach(el => el.classList.remove("dim", "active"));
+        edgeEls.forEach(el => el.classList.remove("dim", "active"));
+        labelEls.forEach(el => el.classList.remove("dim", "active"));
+        document.getElementById("focusTitle").textContent = "未选中节点";
+        document.getElementById("focusDesc").textContent = "请点击图中节点查看它与其他模型的关系。";
+        document.getElementById("focusLinks").innerHTML = "<li>未选中节点时展示全量网络。</li>";
+        return;
+      }
+
+      const relatedEdges = edges.filter(e => e.from === nodeId || e.to === nodeId);
+      const relatedNodeIds = new Set([nodeId]);
+      relatedEdges.forEach(e => { relatedNodeIds.add(e.from); relatedNodeIds.add(e.to); });
+
+      nodeEls.forEach(el => {
+        const id = el.dataset.node;
+        el.classList.toggle("dim", !relatedNodeIds.has(id));
+        el.classList.toggle("active", id === nodeId);
+      });
+
+      edgeEls.forEach(el => {
+        const id = el.dataset.edge;
+        const on = relatedEdges.some(e => e.id === id);
+        el.classList.toggle("dim", !on);
+        el.classList.toggle("active", on);
+      });
+
+      labelEls.forEach(el => {
+        const id = el.dataset.edge;
+        const on = relatedEdges.some(e => e.id === id);
+        el.classList.toggle("dim", !on);
+        el.classList.toggle("active", on);
+      });
+
+      const node = nodes.find(n => n.id === nodeId);
+      document.getElementById("focusTitle").textContent = node.title;
+      document.getElementById("focusDesc").textContent = node.desc;
+
+      const ul = document.getElementById("focusLinks");
+      ul.innerHTML = "";
+      relatedEdges.forEach(e => {
+        const from = nodes.find(n => n.id === e.from).title;
+        const to = nodes.find(n => n.id === e.to).title;
+        const li = document.createElement("li");
+        li.textContent = `${from} -> ${to}（${e.card}）${e.note ? "，" + e.note : ""}`;
+        ul.appendChild(li);
+      });
+    }
+
+    renderNodes();
+    renderEdges();
+
+    canvas.addEventListener("click", (ev) => {
+      const node = ev.target.closest(".node");
+      if (node) {
+        focusNode(node.dataset.node);
+      } else {
+        focusNode(null);
+      }
+    });
+  </script>
+</body>
+</html>
