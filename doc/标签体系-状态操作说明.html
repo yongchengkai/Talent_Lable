@@ -277,10 +277,11 @@
             <td>
               <ul>
                 <li class="no">撤销发布</li>
+                <li class="no">删除限制：若被任意任务引用（模拟任务 SIMULATION / 正式任务 FORMAL）则不可删除</li>
                 <li class="no">规则编码约束：必须以 <code>CR_</code> 开头</li>
               </ul>
             </td>
-            <td>新增规则默认未发布；未发布状态可编辑、可删除。</td>
+            <td>新增规则默认未发布；未发布状态可编辑。删除是否可用不看发布状态，只看“是否被任务引用”。</td>
           </tr>
           <tr>
             <td><strong>已发布</strong></td>
@@ -333,10 +334,11 @@
             <td>
               <ul>
                 <li class="no">撤销发布</li>
+                <li class="no">删除限制：若被任意任务引用（模拟任务 SIMULATION / 正式任务 FORMAL）则不可删除</li>
                 <li class="no">规则编码约束：必须以 <code>AR_</code> 开头</li>
               </ul>
             </td>
-            <td>新增规则默认未发布；未发布状态可编辑、可删除。</td>
+            <td>新增规则默认未发布；未发布状态可编辑。删除是否可用不看发布状态，只看“是否被任务引用”。</td>
           </tr>
           <tr>
             <td><strong>已发布</strong></td>
@@ -422,12 +424,12 @@
             </td>
             <td>
               <ul>
-                <li class="no">直接编辑（前端限制）</li>
-                <li class="no">直接删除（前端限制）</li>
-                <li class="no">删除流程限制：前端要求先撤销后再删除</li>
+                <li class="no">直接编辑（需先撤销）</li>
+                <li class="no">直接删除（需先撤销）</li>
+                <li class="no">删除流程限制：需先撤销后再删除（前后端一致）</li>
               </ul>
             </td>
-            <td>后端与前端策略存在差异：后端限制更宽松。</td>
+            <td>运行成功后，编辑/删除均需先撤销，前后端规则已对齐。</td>
           </tr>
           <tr>
             <td><strong>运行失败</strong></td>
@@ -560,19 +562,12 @@
           </tr>
         </tbody>
       </table>
-      <div class="notes">
+    </section>
+    <section class="card">
+      <h2>审批 <span class="chip">审批动作约束</span></h2>
+      <div class="notes" style="border-top: 0;">
         审批动作约束：<code>approve/reject</code> 仅允许提交状态为“已提交（SUBMITTED）”。
       </div>
-    </section>
-
-    <section class="risk">
-      <h3>实现差异提醒（建议后续统一）</h3>
-      <ul>
-        <li>标签停用/删除的“被规则引用”限制目前主要在前端校验，后端未完全对齐。</li>
-        <li>模拟任务运行成功后，前端要求“先撤销再编辑/删除”，但后端对删除限制较宽松。</li>
-        <li>正式任务删除的前端限制比后端更严格（后端只禁止运行中 RUNNING 删除）。</li>
-        <li>规则回退逻辑里存在对 <code>rule.status=RUNNING</code> 的判断，但当前规则状态枚举仅未发布/已发布（<code>UNPUBLISHED/PUBLISHED</code>）。</li>
-      </ul>
     </section>
   </main>
 </body>

@@ -157,15 +157,19 @@ public class TagRuleServiceImpl implements TagRuleService {
     @Override
     public void rollback(Long id) {
         TagRule rule = getById(id);
-        if ("RUNNING".equals(rule.getStatus())) {
-            throw new BizException("规则正在运行中，不可回退");
-        }
-
-        // 检查是否有已提交审批的任务关联了这条规则
         List<CalcTaskRule> taskRules = taskRuleMapper.selectList(
                 new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getRuleId, id));
         if (!taskRules.isEmpty()) {
             List<Long> taskIds = taskRules.stream().map(CalcTaskRule::getTaskId).toList();
+            Long runningCount = taskMapper.selectCount(
+                    new LambdaQueryWrapper<CalcTask>()
+                            .in(CalcTask::getId, taskIds)
+                            .eq(CalcTask::getTaskStatus, "RUNNING"));
+            if (runningCount != null && runningCount > 0) {
+                throw new BizException("该规则关联的任务正在运行中，请先等待任务结束后再回退规则");
+            }
+
+            // 检查是否有已提交审批的任务关联了这条规则
             Long submittedCount = taskMapper.selectCount(
                     new LambdaQueryWrapper<CalcTask>()
                             .in(CalcTask::getId, taskIds)
