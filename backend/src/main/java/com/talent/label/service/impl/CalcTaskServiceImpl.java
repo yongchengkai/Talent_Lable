@@ -82,12 +82,11 @@ public class CalcTaskServiceImpl implements CalcTaskService {
         if ("RUNNING".equals(existing.getTaskStatus())) {
             throw new BizException("运行中的任务不可编辑");
         }
-        if ("SUBMITTED".equals(existing.getSubmitStatus())) {
-            throw new BizException("已提交审批的任务不可编辑");
+        if ("SUCCESS".equals(existing.getTaskStatus())) {
+            throw new BizException("运行成功的任务需先撤销后才能编辑");
         }
-        // 正式打标只有 INIT 和 FAILED 可编辑
-        if ("FORMAL".equals(existing.getTaskMode()) && !"INIT".equals(existing.getTaskStatus()) && !"FAILED".equals(existing.getTaskStatus())) {
-            throw new BizException("正式打标任务仅待运行或运行失败时可编辑");
+        if ("SUBMITTED".equals(existing.getSubmitStatus()) || "APPROVED".equals(existing.getSubmitStatus())) {
+            throw new BizException("已提交或已审批的任务不可编辑");
         }
         existing.setTaskName(task.getTaskName());
         existing.setTaskType(task.getTaskType());
@@ -218,6 +217,16 @@ public class CalcTaskServiceImpl implements CalcTaskService {
         if ("RUNNING".equals(task.getTaskStatus())) {
             throw new BizException("运行中的任务不可删除");
         }
+        if ("SUCCESS".equals(task.getTaskStatus())) {
+            throw new BizException("运行成功的任务需先撤销后才能删除");
+        }
+        if ("SUBMITTED".equals(task.getSubmitStatus()) || "APPROVED".equals(task.getSubmitStatus())) {
+            throw new BizException("已提交或已审批的任务不可删除");
+        }
+        // 删除关联的规则、结果和证据
+        taskRuleMapper.delete(new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getTaskId, id));
+        detailMapper.delete(new LambdaQueryWrapper<EmployeeTagResultDetail>().eq(EmployeeTagResultDetail::getTaskId, id));
+        resultMapper.delete(new LambdaQueryWrapper<EmployeeTagResult>().eq(EmployeeTagResult::getTaskId, id));
         taskMapper.deleteById(id);
     }
 }

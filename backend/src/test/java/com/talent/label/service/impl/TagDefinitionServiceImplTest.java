@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -77,5 +78,33 @@ class TagDefinitionServiceImplTest {
         when(tagResultDetailMapper.selectCount(any())).thenReturn(0L);
 
         assertThrows(BizException.class, () -> service.delete(102L));
+    }
+
+    @Test
+    void updateStatus_should_block_inactive_when_tag_is_referenced_by_rule() {
+        TagDefinition tag = new TagDefinition();
+        tag.setId(200L);
+        tag.setStatus("ACTIVE");
+        tag.setTagCode("TAG_REF");
+        when(tagMapper.selectById(200L)).thenReturn(tag);
+        when(ruleOutputMapper.selectCount(any())).thenReturn(1L);
+        when(ruleMapper.selectCount(any())).thenReturn(0L);
+
+        assertThrows(BizException.class, () -> service.updateStatus(200L, "INACTIVE"));
+        verify(tagMapper, never()).updateById(any(TagDefinition.class));
+    }
+
+    @Test
+    void updateStatus_should_allow_inactive_when_tag_has_no_rule_reference() {
+        TagDefinition tag = new TagDefinition();
+        tag.setId(201L);
+        tag.setStatus("ACTIVE");
+        tag.setTagCode("TAG_OK");
+        when(tagMapper.selectById(201L)).thenReturn(tag);
+        when(ruleOutputMapper.selectCount(any())).thenReturn(0L);
+        when(ruleMapper.selectCount(any())).thenReturn(0L);
+
+        assertDoesNotThrow(() -> service.updateStatus(201L, "INACTIVE"));
+        verify(tagMapper).updateById(any(TagDefinition.class));
     }
 }

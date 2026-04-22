@@ -161,8 +161,6 @@ export default function RuleSemanticPage() {
           </ActionLink>
           <ActionLink onClick={() => openCopy(record)}>复制</ActionLink>
           <ActionLink danger
-            disabled={record.status === 'PUBLISHED'}
-            disabledReason="已发布的规则不可删除，请先撤销发布"
             onClick={() => {
               Modal.confirm({ title: '确认删除', icon: <ExclamationCircleOutlined style={{ color: '#0ea5e9' }} />, content: '删除后不可恢复，确认删除该规则？', okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true }, onOk: async () => { try { await ruleApi.delete(record.id); message.success('删除成功'); fetchData(); } catch (e: any) { message.error(e.message || '删除失败'); } } });
             }}>

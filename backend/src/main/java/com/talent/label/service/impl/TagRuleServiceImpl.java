@@ -236,9 +236,11 @@ public class TagRuleServiceImpl implements TagRuleService {
     @Override
     public void delete(Long id) {
         TagRule rule = getById(id);
-        // 已发布的规则不可删除，需先撤销发布
-        if ("PUBLISHED".equals(rule.getStatus())) {
-            throw new BizException("已发布的规则不可删除，请先撤销发布");
+        // 检查是否被任何任务（模拟+正式）引用
+        List<CalcTaskRule> taskRules = taskRuleMapper.selectList(
+                new LambdaQueryWrapper<CalcTaskRule>().eq(CalcTaskRule::getRuleId, id));
+        if (!taskRules.isEmpty()) {
+            throw new BizException("该规则已被打标任务引用，不可删除。请先删除引用该规则的任务后再操作。");
         }
         ruleMapper.deleteById(id);
     }

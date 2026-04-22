@@ -94,6 +94,12 @@ public class TagDefinitionServiceImpl implements TagDefinitionService {
     @Override
     public void updateStatus(Long id, String status) {
         TagDefinition tag = getById(id);
+        if ("INACTIVE".equals(status)) {
+            long ruleRefCount = countRuleReferences(tag);
+            if (ruleRefCount > 0) {
+                throw new BizException("标签被 " + ruleRefCount + " 条规则引用，无法停用。请先移除规则中对该标签的引用后再操作");
+            }
+        }
         tag.setStatus(status);
         tagMapper.updateById(tag);
     }
