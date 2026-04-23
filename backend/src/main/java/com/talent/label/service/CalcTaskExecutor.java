@@ -141,10 +141,10 @@ public class CalcTaskExecutor {
         DslParser.DslData dsl = dslParser.parse(rule.getDslContent());
 
         List<String> tagCodes = dslParser.extractTagCodes(dsl);
-        List<Long> outputTagIds = new ArrayList<>();
+        Map<String, Long> outputTagIds = new LinkedHashMap<>();
         for (String code : tagCodes) {
             Long tagId = tagCodeToId.get(code);
-            if (tagId != null) outputTagIds.add(tagId);
+            if (tagId != null) outputTagIds.put(code, tagId);
             else log.warn("规则 {} 引用的标签编码 {} 不存在", rule.getRuleCode(), code);
         }
 
@@ -154,8 +154,10 @@ public class CalcTaskExecutor {
         }
 
         for (Employee emp : employees) {
-            boolean hit = dslParser.evaluate(dsl, emp);
-            for (Long tagId : outputTagIds) {
+            Map<String, Boolean> tagHitMap = dslParser.evaluateTagHits(dsl, emp);
+            for (Map.Entry<String, Long> outputTag : outputTagIds.entrySet()) {
+                Long tagId = outputTag.getValue();
+                boolean hit = Boolean.TRUE.equals(tagHitMap.get(outputTag.getKey()));
                 EmployeeTagResultDetail detail = new EmployeeTagResultDetail();
                 detail.setTaskId(taskId);
                 detail.setEmployeeId(emp.getId());

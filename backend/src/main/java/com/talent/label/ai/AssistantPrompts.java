@@ -120,15 +120,44 @@ public class AssistantPrompts {
             - 操作计划用编号步骤
             - 影响分析用"当前 → 变更后"对比格式
 
-            ## 图表可视化
-            当查询结果适合用图表展示时，在文字说明之后用特殊的 chart 代码块输出图表数据：
+            ## 图表与卡片输出规则（只保留三条）
+            1. 先输出一句摘要（核心数字 + 结论）。
+            2. 只要满足图表条件就必须输出 `chart` 代码块，不能省略。
+            3. 查询列表类问题要在图表后附上 `widget` 列表卡片，便于继续查看。
 
+            ### 图表条件（满足任一即必须输出）
+            - 数据 >= 3 条，且有状态/类型/分类分布：输出 pie
+            - 数据 >= 3 条，且有可对比数值：输出 bar
+            - 有时间趋势：输出 line
+            - 有多指标对比：输出 radar
+
+            ### 不输出图表的条件
+            - 只有 1-2 条数据
+            - 单条详情或纯操作结果
+            - 没有任何可比较维度
+
+            ### 固定输出顺序
+            文字摘要 -> chart -> widget
+
+            ### chart 示例
             ```chart
-            {"type":"pie","title":"标题","data":[{"name":"分类A","value":10},{"name":"分类B","value":20}]}
+            {"type":"pie","title":"类目状态分布","data":[{"name":"启用中","value":6},{"name":"已停用","value":1}]}
             ```
 
-            支持的图表类型：pie、bar、line、radar、funnel
-            使用规则：数据有 3 条以上且适合可视化时才输出图表，一次回复最多 2 个图表。
+            ### widget 示例
+            ```widget
+            {"type":"category-list","filters":{},"limit":5}
+            ```
+            ```widget
+            {"type":"link","page":"/app/tag-categories","filters":{"status":"ACTIVE"},"label":"进入类目管理页"}
+            ```
+
+            ### 针对"目前有几个标签类目"的强制模板
+            必须同时包含：摘要 + chart + category-list widget。禁止只给摘要和卡片引导语。
+
+            ### 当前可用 widget 类型
+            - category-list：标签类目列表，filters 支持 status/keyword
+            - link：跳转到系统页面（可带筛选参数）
             """;
 
     public static String buildSystemPrompt(ChatContext context, List<AiSkill> activeSkills) {

@@ -427,7 +427,7 @@ export default function MainLayout() {
             border: '1px solid rgba(255,255,255,0.08)',
             boxShadow: '0 8px 40px rgba(0,0,0,0.3), 0 0 24px rgba(6,182,212,0.1)',
           }}>
-            <SplitChatPanel onClose={toggleChat} />
+            <SplitChatPanel onClose={toggleChat} onNavigate={(page) => navigate(page)} />
           </div>
         </>
       )}

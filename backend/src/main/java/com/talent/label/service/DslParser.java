@@ -19,6 +19,15 @@ public class DslParser {
 
     @Data
     public static class DslData {
+        private String type;
+        private List<Branch> branches = new ArrayList<>();
+        private List<Condition> conditions = new ArrayList<>();
+        private String logic = "AND";
+        private List<String> outputs = new ArrayList<>();
+    }
+
+    @Data
+    public static class Branch {
         private List<Condition> conditions = new ArrayList<>();
         private String logic = "AND";
         private List<String> outputs = new ArrayList<>();
@@ -43,32 +52,95 @@ public class DslParser {
 
     /** 对单个员工评估 DSL 条件，返回是否命中 */
     public boolean evaluate(DslData dsl, Employee employee) {
-        if (dsl.getConditions() == null || dsl.getConditions().isEmpty()) return false;
+        Map<String, Boolean> tagHits = evaluateTagHits(dsl, employee);
+        for (Boolean hit : tagHits.values()) {
+            if (Boolean.TRUE.equals(hit)) return true;
+        }
+        return false;
+    }
 
-        boolean isAnd = "AND".equalsIgnoreCase(dsl.getLogic());
+    /** 对单个员工评估 DSL，并返回每个输出标签编码是否命中 */
+    public Map<String, Boolean> evaluateTagHits(DslData dsl, Employee employee) {
+        Map<String, Boolean> result = new LinkedHashMap<>();
+        if (dsl == null) return result;
 
-        for (Condition cond : dsl.getConditions()) {
+        if (isMultiBranch(dsl)) {
+            for (Branch branch : dsl.getBranches()) {
+                if (branch == null) continue;
+                List<String> tagCodes = extractTagCodes(branch.getOutputs());
+                for (String code : tagCodes) {
+                    result.putIfAbsent(code, false);
+                }
+                boolean branchHit = evaluateConditions(branch.getConditions(), branch.getLogic(), employee);
+                if (branchHit) {
+                    for (String code : tagCodes) {
+                        result.put(code, true);
+                    }
+                }
+            }
+            return result;
+        }
+
+        boolean hit = evaluateConditions(dsl.getConditions(), dsl.getLogic(), employee);
+        for (String code : extractTagCodes(dsl.getOutputs())) {
+            result.put(code, hit);
+        }
+        return result;
+    }
+
+    /** 从 outputs 中提取标签编码列表 */
+    public List<String> extractTagCodes(DslData dsl) {
+        LinkedHashSet<String> codes = new LinkedHashSet<>();
+        if (dsl == null) return new ArrayList<>(codes);
+
+        if (isMultiBranch(dsl)) {
+            for (Branch branch : dsl.getBranches()) {
+                if (branch == null) continue;
+                codes.addAll(extractTagCodes(branch.getOutputs()));
+            }
+            return new ArrayList<>(codes);
+        }
+
+        codes.addAll(extractTagCodes(dsl.getOutputs()));
+        return new ArrayList<>(codes);
+    }
+
+    private List<String> extractTagCodes(List<String> outputs) {
+        List<String> codes = new ArrayList<>();
+        if (outputs == null) return codes;
+        for (String output : outputs) {
+            if (output == null) continue;
+            // 格式: #{标签名称（TAG_CODE）}
+            int start = output.indexOf('（');
+            int end = output.indexOf('）');
+            if (start >= 0 && end > start) {
+                codes.add(output.substring(start + 1, end));
+            } else {
+                String raw = output.trim();
+                if (!raw.isEmpty() && raw.matches("[A-Z0-9_]+")) {
+                    codes.add(raw);
+                }
+            }
+        }
+        return codes;
+    }
+
+    private boolean isMultiBranch(DslData dsl) {
+        return (dsl.getBranches() != null && !dsl.getBranches().isEmpty())
+                || "MULTI_BRANCH".equalsIgnoreCase(dsl.getType());
+    }
+
+    private boolean evaluateConditions(List<Condition> conditions, String logic, Employee employee) {
+        if (conditions == null || conditions.isEmpty()) return false;
+
+        boolean isAnd = !"OR".equalsIgnoreCase(logic);
+        for (Condition cond : conditions) {
             boolean matched = evaluateCondition(cond, employee);
             if (isAnd && !matched) return false;
             if (!isAnd && matched) return true;
         }
 
         return isAnd; // AND: 全部通过返回 true; OR: 全部不通过返回 false
-    }
-
-    /** 从 outputs 中提取标签编码列表 */
-    public List<String> extractTagCodes(DslData dsl) {
-        List<String> codes = new ArrayList<>();
-        if (dsl.getOutputs() == null) return codes;
-        for (String output : dsl.getOutputs()) {
-            // 格式: #{标签名称（TAG_CODE）}
-            int start = output.indexOf('（');
-            int end = output.indexOf('）');
-            if (start >= 0 && end > start) {
-                codes.add(output.substring(start + 1, end));
-            }
-        }
-        return codes;
     }
 
     /** 解析字段引用格式：@{字段名（field_code）} → field_code，普通字符串原样返回 */

@@ -63,7 +63,7 @@ const ThinkingIndicatorMini: React.FC = () => (
   </div>
 );
 
-const SplitChatPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const SplitChatPanel: React.FC<{ onClose: () => void; onNavigate?: (page: string) => void }> = ({ onClose, onNavigate }) => {
   const {
     sessionId, messages, isStreaming,
     createSession, sendMessage, confirmOperation, loadSessions, switchSession,
@@ -131,7 +131,7 @@ const SplitChatPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         ) : (
           <>
             {messages.map((msg: ChatMessage) => (
-              <MiniMessage key={msg.id} message={msg} onConfirm={confirmOperation} />
+              <MiniMessage key={msg.id} message={msg} onConfirm={confirmOperation} onNavigate={onNavigate} />
             ))}
             <div ref={messagesEndRef} />
           </>
@@ -156,7 +156,7 @@ const SplitChatPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   );
 };
 
-const MiniMessage: React.FC<{ message: ChatMessage; onConfirm: (opId: string, approved: boolean) => Promise<void> }> = ({ message: msg, onConfirm }) => {
+const MiniMessage: React.FC<{ message: ChatMessage; onConfirm: (opId: string, approved: boolean) => Promise<void>; onNavigate?: (page: string) => void }> = ({ message: msg, onConfirm, onNavigate }) => {
   const isUser = msg.role === 'user';
   return (
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 10, gap: 6 }}>
@@ -178,7 +178,7 @@ const MiniMessage: React.FC<{ message: ChatMessage; onConfirm: (opId: string, ap
       }} className={!isUser ? 'markdown-body' : ''}>
         {isUser ? msg.content : (
           msg.isThinking ? <ThinkingIndicatorMini /> : (
-            <MessageContent content={msg.content} isStreaming={false} isDark={false} />
+            <MessageContent content={msg.content} isStreaming={false} isDark={false} onNavigate={onNavigate} />
           )
         )}
         {msg.pendingOperation && msg.pendingOperation.status === 'pending' && (

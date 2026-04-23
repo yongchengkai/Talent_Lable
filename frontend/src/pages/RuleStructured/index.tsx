@@ -11,11 +11,25 @@ const { Option } = Select;
 const extractOutputTags = (dsl: string): { tagName: string; tagCode: string }[] => {
   try {
     const parsed = JSON.parse(dsl);
-    if (!parsed.outputs) return [];
+    const outputs: string[] = [];
+    if (Array.isArray(parsed.outputs)) {
+      outputs.push(...parsed.outputs);
+    }
+    const isMultiBranch = parsed.type === 'MULTI_BRANCH' || (Array.isArray(parsed.branches) && parsed.branches.length > 0);
+    if (isMultiBranch && Array.isArray(parsed.branches)) {
+      for (const branch of parsed.branches) {
+        if (Array.isArray(branch?.outputs)) outputs.push(...branch.outputs);
+      }
+    }
+    if (outputs.length === 0) return [];
     const result: { tagName: string; tagCode: string }[] = [];
-    for (const o of parsed.outputs) {
+    const seen = new Set<string>();
+    for (const o of outputs) {
       const m = o.match(/^#\{(.+?)（([A-Z0-9_]+)）\}$/);
-      if (m) result.push({ tagName: m[1], tagCode: m[2] });
+      if (m && !seen.has(m[2])) {
+        seen.add(m[2]);
+        result.push({ tagName: m[1], tagCode: m[2] });
+      }
     }
     return result;
   } catch {
@@ -118,13 +132,33 @@ export default function RuleStructuredPage() {
     // 校验 JSON 格式
     try {
       const parsed = JSON.parse(dslContent);
-      if (!parsed.conditions || !Array.isArray(parsed.conditions)) {
-        message.warning('DSL 缺少 conditions 字段');
-        return;
-      }
-      if (!parsed.outputs || parsed.outputs.length === 0) {
-        message.warning('DSL 缺少 outputs 字段');
-        return;
+      const isMultiBranch = parsed.type === 'MULTI_BRANCH' || (Array.isArray(parsed.branches) && parsed.branches.length > 0);
+
+      if (isMultiBranch) {
+        if (!Array.isArray(parsed.branches) || parsed.branches.length === 0) {
+          message.warning('DSL 缺少 branches 字段');
+          return;
+        }
+        for (let i = 0; i < parsed.branches.length; i++) {
+          const branch = parsed.branches[i];
+          if (!Array.isArray(branch?.conditions) || branch.conditions.length === 0) {
+            message.warning(`DSL 第 ${i + 1} 个分支缺少 conditions 字段`);
+            return;
+          }
+          if (!Array.isArray(branch?.outputs) || branch.outputs.length === 0) {
+            message.warning(`DSL 第 ${i + 1} 个分支缺少 outputs 字段`);
+            return;
+          }
+        }
+      } else {
+        if (!Array.isArray(parsed.conditions) || parsed.conditions.length === 0) {
+          message.warning('DSL 缺少 conditions 字段');
+          return;
+        }
+        if (!Array.isArray(parsed.outputs) || parsed.outputs.length === 0) {
+          message.warning('DSL 缺少 outputs 字段');
+          return;
+        }
       }
     } catch {
       message.error('DSL 不是合法的 JSON 格式');

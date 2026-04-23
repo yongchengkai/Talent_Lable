@@ -154,7 +154,7 @@ export default function ChatLayout() {
             ) : (
               <>
                 {messages.map((msg: ChatMessage) => (
-                  <MessageBubble key={msg.id} message={msg} onConfirm={confirmOperation} />
+                  <MessageBubble key={msg.id} message={msg} onConfirm={confirmOperation} onNavigate={(page) => navigate(page)} />
                 ))}
                 <div ref={messagesEndRef} />
               </>
@@ -280,7 +280,7 @@ const ThinkingIndicator: React.FC = () => (
   </div>
 );
 
-const MessageBubble: React.FC<{ message: ChatMessage; onConfirm: (opId: string, approved: boolean) => Promise<void> }> = ({ message: msg, onConfirm }) => {
+const MessageBubble: React.FC<{ message: ChatMessage; onConfirm: (opId: string, approved: boolean) => Promise<void>; onNavigate?: (page: string) => void }> = ({ message: msg, onConfirm, onNavigate }) => {
   const isUser = msg.role === 'user';
   return (
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 16, gap: 8 }}>
@@ -301,7 +301,7 @@ const MessageBubble: React.FC<{ message: ChatMessage; onConfirm: (opId: string, 
       }} className={!isUser ? 'markdown-body markdown-body-dark' : ''}>
         {isUser ? msg.content : (
           msg.isThinking ? <ThinkingIndicator /> : (
-            <MessageContent content={msg.content} isStreaming={false} isDark={true} />
+            <MessageContent content={msg.content} isStreaming={false} isDark={true} onNavigate={onNavigate} />
           )
         )}
         {msg.pendingOperation && msg.pendingOperation.status === 'pending' && (
