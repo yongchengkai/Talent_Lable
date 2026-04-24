@@ -6,19 +6,21 @@ import { tagApi, categoryApi } from '@/services/api';
 
 const { Option } = Select;
 
-export default function TagDefinitionPage() {
-  const navigate = useNavigate();
+export default function TagDefinitionPage({ embedded, embeddedFilters, embeddedPrefill, embeddedAction, onNavigate }: { embedded?: boolean; embeddedFilters?: Record<string, string>; embeddedPrefill?: Record<string, any>; embeddedAction?: string; onNavigate?: (page: string, filters?: Record<string, string>) => void } = {}) {
+  const routerNavigate = useNavigate();
+  const doNavigate = embedded ? onNavigate : (page: string) => routerNavigate(page);
   const [data, setData] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [keyword, setKeyword] = useState('');
-  const [filterCategory, setFilterCategory] = useState<number | undefined>();
-  const [filterStatus, setFilterStatus] = useState<string>();
+  const [keyword, setKeyword] = useState(embeddedFilters?.keyword || '');
+  const [filterCategory, setFilterCategory] = useState<number | undefined>(embeddedFilters?.categoryId ? Number(embeddedFilters.categoryId) : undefined);
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(embeddedFilters?.status);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingCategoryOption, setEditingCategoryOption] = useState<{ id: number; categoryName: string } | null>(null);
   const [form] = Form.useForm();
 
   // 详情弹窗
@@ -42,6 +44,61 @@ export default function TagDefinitionPage() {
   };
 
   useEffect(() => { fetchData(1); fetchCategories(); }, []);
+
+  useEffect(() => {
+    if (embedded && embeddedAction === 'create') {
+      setCreateDone(false);
+      setEditingCategoryOption(null);
+      setEditingId(null);
+      form.resetFields();
+      const prefill = embeddedPrefill || {};
+      form.setFieldsValue({
+        tagCode: 'TAG_',
+        ...prefill,
+        ...(prefill.categoryId !== undefined ? { categoryId: Number(prefill.categoryId) } : {}),
+      });
+    } else if (embedded && embeddedAction === 'edit') {
+      setEditDone(false);
+      const prefill = embeddedPrefill || {};
+      const id = prefill.id !== undefined ? Number(prefill.id) : null;
+      setEditingId(id && !Number.isNaN(id) ? id : null);
+      form.resetFields();
+      const doFill = async () => {
+        if (id && !Number.isNaN(id)) {
+          try {
+            const res: any = await tagApi.getById(id);
+            const detail = res.data || {};
+            form.setFieldsValue({
+              ...detail,
+              ...(detail.categoryId !== undefined ? { categoryId: Number(detail.categoryId) } : {}),
+            });
+            const categoryId = detail.categoryId !== undefined ? Number(detail.categoryId) : null;
+            if (categoryId && !categories.some(c => c.id === categoryId)) {
+              try {
+                const cRes: any = await categoryApi.getById(categoryId);
+                if (cRes.data?.id) setEditingCategoryOption({ id: cRes.data.id, categoryName: cRes.data.categoryName || `类目#${cRes.data.id}` });
+              } catch {
+                setEditingCategoryOption({ id: categoryId, categoryName: prefill.categoryName || `类目#${categoryId}` });
+              }
+            } else {
+              setEditingCategoryOption(null);
+            }
+            return;
+          } catch {}
+        }
+        form.setFieldsValue({
+          ...prefill,
+          ...(prefill.categoryId !== undefined ? { categoryId: Number(prefill.categoryId) } : {}),
+        });
+        if (prefill.categoryId && !categories.some(c => c.id === Number(prefill.categoryId))) {
+          setEditingCategoryOption({ id: Number(prefill.categoryId), categoryName: prefill.categoryName || `类目#${prefill.categoryId}` });
+        } else {
+          setEditingCategoryOption(null);
+        }
+      };
+      doFill();
+    }
+  }, [embedded, embeddedAction, embeddedPrefill, categories]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -84,7 +141,7 @@ export default function TagDefinitionPage() {
             okText: '前往条件打标规则',
             okCancel: true,
             cancelText: '取消',
-            onOk: () => navigate('/app/rules/structured'),
+            onOk: () => doNavigate?.('/app/rules/structured'),
           });
           return;
         }
@@ -111,7 +168,7 @@ export default function TagDefinitionPage() {
           okText: '前往条件打标规则',
           okCancel: true,
           cancelText: '取消',
-          onOk: () => navigate('/app/rules/structured'),
+          onOk: () => doNavigate?.('/app/rules/structured'),
         });
         return;
       }
@@ -157,6 +214,7 @@ export default function TagDefinitionPage() {
     {
       title: '标签名称', dataIndex: 'tagName', width: 150,
       render: (name: string, record: any) => (
+        embedded ? <span style={{ fontWeight: 500 }}>{name}</span> :
         <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a>
       ),
     },
@@ -168,7 +226,7 @@ export default function TagDefinitionPage() {
       render: (_: any, record: any) => <RuleRefCell tagId={record.id} loadRules={loadRules} ruleTypeMap={ruleTypeMap} />,
     },
     { title: '状态', dataIndex: 'status', width: 80, render: (s: string) => <Tag color={s === 'ACTIVE' ? 'green' : 'default'}>{s === 'ACTIVE' ? '启用' : '停用'}</Tag> },
-    {
+    ...(!embedded ? [{
       title: '操作', width: 220,
       render: (_: any, record: any) => {
         const rules = rulesCache[record.id] || [];
@@ -187,34 +245,170 @@ export default function TagDefinitionPage() {
           </Space>
         );
       },
-    },
+    }] : []),
   ];
 
+  const [createDone, setCreateDone] = useState(false);
+  const [editDone, setEditDone] = useState(false);
+
+  const isEmbeddedCreate = embedded && embeddedAction === 'create';
+  const isEmbeddedEdit = embedded && embeddedAction === 'edit';
+
+  if (isEmbeddedCreate) {
+    if (createDone) {
+      return (
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#10b981', fontWeight: 500, fontSize: 13 }}>✓ 标签创建成功</span>
+        </div>
+      );
+    }
+    return (
+      <div style={{ width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>新建标签</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <Form form={form} layout="vertical" size="small" initialValues={{ tagCode: 'TAG_' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+              <Form.Item name="tagCode" label={<span style={{ fontSize: 12 }}>标签编码</span>} rules={[{ required: true, message: '请输入标签编码' }]}
+                extra={<span style={{ fontSize: 11 }}>前缀 TAG_，后缀仅 A-Z、0-9、_</span>}>
+                <Input placeholder="TAG_" style={{ fontSize: 12 }} />
+              </Form.Item>
+              <Form.Item name="tagName" label={<span style={{ fontSize: 12 }}>标签名称</span>} rules={[{ required: true, message: '请输入标签名称' }]}>
+                <Input style={{ fontSize: 12 }} />
+              </Form.Item>
+            </div>
+            <Form.Item name="categoryId" label={<span style={{ fontSize: 12 }}>所属类目</span>} rules={[{ required: true, message: '请选择所属类目' }]}>
+              <Select
+                size="small"
+                style={{ fontSize: 12 }}
+                options={[
+                  ...categories.map(c => ({ label: c.categoryName, value: c.id })),
+                  ...(editingCategoryOption && !categories.some(c => c.id === editingCategoryOption.id)
+                    ? [{ label: `${editingCategoryOption.categoryName}（已停用）`, value: editingCategoryOption.id }]
+                    : []),
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="description" label={<span style={{ fontSize: 12 }}>说明</span>} style={{ marginBottom: 8 }}>
+              <Input.TextArea rows={2} style={{ fontSize: 12 }} />
+            </Form.Item>
+            <div style={{ textAlign: 'right' }}>
+              <Button type="primary" size="small" style={{ fontSize: 12 }} onClick={async () => {
+                try {
+                  const values = await form.validateFields();
+                  await tagApi.create({ ...values, createdBy: 'admin', updatedBy: 'admin' });
+                  message.success('标签创建成功');
+                  setCreateDone(true);
+                } catch (e: any) {
+                  if (e.message) message.error(e.message);
+                }
+              }}>创建</Button>
+            </div>
+          </Form>
+        </div>
+      </div>
+    );
+  }
+
+  if (isEmbeddedEdit) {
+    if (!editingId) {
+      return (
+        <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#ef4444', fontWeight: 500, fontSize: 13 }}>缺少标签 ID，无法编辑</span>
+        </div>
+      );
+    }
+    if (editDone) {
+      return (
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#10b981', fontWeight: 500, fontSize: 13 }}>✓ 标签更新成功</span>
+        </div>
+      );
+    }
+    return (
+      <div style={{ width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>编辑标签</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <Form form={form} layout="vertical" size="small">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+              <Form.Item name="tagCode" label={<span style={{ fontSize: 12 }}>标签编码</span>} rules={[{ required: true, message: '请输入标签编码' }]}>
+                <Input disabled style={{ fontSize: 12 }} />
+              </Form.Item>
+              <Form.Item name="tagName" label={<span style={{ fontSize: 12 }}>标签名称</span>} rules={[{ required: true, message: '请输入标签名称' }]}>
+                <Input style={{ fontSize: 12 }} />
+              </Form.Item>
+            </div>
+            <Form.Item name="categoryId" label={<span style={{ fontSize: 12 }}>所属类目</span>} rules={[{ required: true, message: '请选择所属类目' }]}>
+              <Select
+                size="small"
+                style={{ fontSize: 12 }}
+                options={[
+                  ...categories.map(c => ({ label: c.categoryName, value: c.id })),
+                  ...(editingCategoryOption && !categories.some(c => c.id === editingCategoryOption.id)
+                    ? [{ label: `${editingCategoryOption.categoryName}（已停用）`, value: editingCategoryOption.id }]
+                    : []),
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="description" label={<span style={{ fontSize: 12 }}>说明</span>} style={{ marginBottom: 8 }}>
+              <Input.TextArea rows={2} style={{ fontSize: 12 }} />
+            </Form.Item>
+            <div style={{ textAlign: 'right' }}>
+              <Button type="primary" size="small" style={{ fontSize: 12 }} onClick={async () => {
+                try {
+                  const values = await form.validateFields();
+                  await tagApi.update(editingId, { ...values, updatedBy: 'admin' });
+                  message.success('标签更新成功');
+                  setEditDone(true);
+                } catch (e: any) {
+                  if (e.message) message.error(e.message);
+                }
+              }}>保存</Button>
+            </div>
+          </Form>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="page-container">
-      <div className="page-toolbar">
-        <Space>
-          <Input placeholder="搜索标签名称、编码" value={keyword} onChange={(e) => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} style={{ width: 200 }} />
-          <Select placeholder="所属类目" allowClear style={{ width: 160 }} value={filterCategory} onChange={setFilterCategory} options={categories.map(c => ({ label: c.categoryName, value: c.id }))} />
-          <Select placeholder="状态" allowClear style={{ width: 100 }} value={filterStatus} onChange={setFilterStatus}>
+    <div className={embedded ? undefined : "page-container"} style={embedded ? { width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' } : undefined}>
+      <div className={embedded ? undefined : "page-toolbar"} style={embedded ? { padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)' } : undefined}>
+        <Space size={embedded ? 6 : 8} wrap={embedded}>
+          <Input placeholder="搜索标签名称、编码" value={keyword} onChange={(e) => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 160 : 200, fontSize: embedded ? 12 : undefined }} />
+          <Select placeholder="所属类目" allowClear size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 120 : 160, fontSize: embedded ? 12 : undefined }} value={filterCategory} onChange={setFilterCategory} options={categories.map(c => ({ label: c.categoryName, value: c.id }))} />
+          <Select placeholder="状态" allowClear size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 80 : 100, fontSize: embedded ? 12 : undefined }} value={filterStatus} onChange={setFilterStatus}>
             <Option value="ACTIVE">启用</Option><Option value="INACTIVE">停用</Option>
           </Select>
-          <Button onClick={() => fetchData(1)}>查询</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => fetchData(1)} style={embedded ? { fontSize: 12 } : undefined}>查询</Button>
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建</Button>
+        {!embedded && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建</Button>}
       </div>
 
       <Table rowKey="id" columns={columns} dataSource={data} loading={loading}
+        size={embedded ? 'small' : undefined}
+        scroll={embedded ? { x: 800 } : undefined}
+        style={embedded ? { fontSize: 12 } : undefined}
         pagination={{
-          current,
-          total,
-          pageSize,
+          current, total, pageSize: embedded ? 10 : pageSize,
           showTotal: (t) => `共 ${t} 条`,
           showSizeChanger: true,
-          showQuickJumper: true,
-          pageSizeOptions: ['10', '20', '50', '100'],
+          showQuickJumper: !embedded,
+          pageSizeOptions: embedded ? ['5', '10', '20'] : ['10', '20', '50', '100'],
+          size: embedded ? 'small' : undefined,
           onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); },
         }} />
+
+      {embedded && (
+        <div style={{ padding: '4px 12px', borderTop: '1px solid rgba(255,255,255,0.04)', textAlign: 'right' }}>
+          <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }} onClick={() => onNavigate?.('/app/tag-definitions')}>
+            在页面中查看 →
+          </Button>
+        </div>
+      )}
 
       {/* 新建/编辑标签 */}
       <Modal title={editingId ? '编辑标签' : '新建标签'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} width={560} maskClosable={false} destroyOnClose>
@@ -230,7 +424,12 @@ export default function TagDefinitionPage() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item name="categoryId" label="所属类目" rules={[{ required: true, message: '请选择所属类目' }]}>
-              <Select options={categories.map(c => ({ label: c.categoryName, value: c.id }))} />
+              <Select options={[
+                ...categories.map(c => ({ label: c.categoryName, value: c.id })),
+                ...(editingCategoryOption && !categories.some(c => c.id === editingCategoryOption.id)
+                  ? [{ label: `${editingCategoryOption.categoryName}（已停用）`, value: editingCategoryOption.id }]
+                  : []),
+              ]} />
             </Form.Item>
             {editingId && (
               <Form.Item label="状态">

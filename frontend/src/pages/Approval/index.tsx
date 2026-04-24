@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, Table, Space, Tag, message, Input, Modal, Select, Drawer } from 'antd';
 import { SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { taskApi, ruleApi } from '@/services/api';
@@ -19,14 +20,16 @@ const submitStatusMap: Record<string, { text: string; color: string }> = {
   REJECTED: { text: '已驳回', color: 'error' },
 };
 
-export default function ApprovalPage() {
+export default function ApprovalPage({ embedded, embeddedFilters, onNavigate }: { embedded?: boolean; embeddedFilters?: Record<string, string>; embeddedAction?: string; onNavigate?: (page: string, filters?: Record<string, string>) => void } = {}) {
+  const routerNavigate = useNavigate();
+  const doNavigate = embedded ? onNavigate : (page: string) => routerNavigate(page);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [keyword, setKeyword] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>();
+  const [keyword, setKeyword] = useState(embeddedFilters?.keyword || '');
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(embeddedFilters?.submitStatus || embeddedFilters?.status);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [ruleDetailData, setRuleDetailData] = useState<any[]>([]);
@@ -35,12 +38,12 @@ export default function ApprovalPage() {
   const [resultData, setResultData] = useState<any[]>([]);
   const [resultLoading, setResultLoading] = useState(false);
 
-  const fetchData = async (page = current, size = pageSize) => {
+  const fetchData = async (page = current, size = pageSize, kw = keyword, submitStatus = filterStatus) => {
     setLoading(true);
     try {
       const res: any = await taskApi.page({
-        current: page, size, keyword, taskMode: 'FORMAL',
-        submitStatus: filterStatus || undefined,
+        current: page, size, keyword: kw, taskMode: 'FORMAL',
+        submitStatus: submitStatus || undefined,
       });
       // 只显示已提交或已审批的任务
       const records = (res.data?.records || []).filter((r: any) =>
@@ -112,7 +115,7 @@ export default function ApprovalPage() {
     {
       title: '任务名称', dataIndex: 'taskName', width: 200,
       render: (name: string, record: any) => (
-        <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a>
+        embedded ? <span style={{ fontWeight: 500 }}>{name}</span> : <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a>
       ),
     },
     { title: '任务编号', dataIndex: 'taskNo', width: 160, render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
@@ -126,7 +129,7 @@ export default function ApprovalPage() {
     },
     { title: '提交人', dataIndex: 'triggeredBy', width: 100 },
     { title: '运行时间', dataIndex: 'startTime', width: 170 },
-    {
+    ...(!embedded ? [{
       title: '操作', width: 200,
       render: (_: any, record: any) => (
         <Space>
@@ -149,7 +152,7 @@ export default function ApprovalPage() {
           <a className="action-link" onClick={() => openResult(record)}>查看结果</a>
         </Space>
       ),
-    },
+    }] : []),
   ];
 
   const ruleColumns = [
@@ -170,22 +173,33 @@ export default function ApprovalPage() {
   ];
 
   return (
-    <div className="page-container">
-      <div className="page-toolbar">
-        <Space>
-          <Input placeholder="搜索任务名称、编号" value={keyword} onChange={e => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} style={{ width: 240 }} />
-          <Select placeholder="审批状态" allowClear style={{ width: 140 }} value={filterStatus} onChange={v => { setFilterStatus(v); }}>
+    <div className={embedded ? undefined : "page-container"} style={embedded ? { width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' } : undefined}>
+      <div className={embedded ? undefined : "page-toolbar"} style={embedded ? { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' } : undefined}>
+        <Space size={embedded ? 6 : 8} wrap={embedded}>
+          <Input placeholder="搜索任务名称、编号" value={keyword} onChange={e => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 180 : 240, fontSize: embedded ? 12 : undefined }} />
+          <Select placeholder="审批状态" allowClear size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 100 : 140, fontSize: embedded ? 12 : undefined }} value={filterStatus} onChange={v => { setFilterStatus(v); }}>
             <Option value="SUBMITTED">待审批</Option>
             <Option value="APPROVED">已通过</Option>
             <Option value="REJECTED">已驳回</Option>
           </Select>
-          <Button onClick={() => fetchData(1)}>查询</Button>
-          <Button onClick={() => { setKeyword(''); setFilterStatus(undefined); fetchData(1); }}>重置</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => fetchData(1)} style={embedded ? { fontSize: 12 } : undefined}>查询</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => { setKeyword(''); setFilterStatus(undefined); fetchData(1, pageSize, '', undefined); }} style={embedded ? { fontSize: 12 } : undefined}>重置</Button>
         </Space>
       </div>
 
       <Table rowKey="id" columns={columns} dataSource={data} loading={loading}
-        pagination={{ current, total, pageSize, showTotal: t => `共 ${t} 条`, showSizeChanger: true, onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); } }} />
+        size={embedded ? 'small' : undefined}
+        scroll={embedded ? { x: 900 } : undefined}
+        style={embedded ? { fontSize: 12 } : undefined}
+        pagination={{ current, total, pageSize: embedded ? 10 : pageSize, showTotal: t => `共 ${t} 条`, showSizeChanger: true, showQuickJumper: !embedded, pageSizeOptions: embedded ? ['5', '10', '20'] : ['10', '20', '50', '100'], size: embedded ? 'small' : undefined, onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); } }} />
+
+      {embedded && (
+        <div style={{ padding: '4px 12px', borderTop: '1px solid rgba(255,255,255,0.04)', textAlign: 'right' }}>
+          <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }} onClick={() => doNavigate?.('/app/approvals')}>
+            在页面中查看 →
+          </Button>
+        </div>
+      )}
 
       {/* 详情弹窗 */}
       <Modal title="打标任务审批详情" open={detailOpen} onCancel={() => setDetailOpen(false)} maskClosable={false}

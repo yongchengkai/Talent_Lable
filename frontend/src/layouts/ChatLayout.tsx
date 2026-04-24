@@ -282,6 +282,8 @@ const ThinkingIndicator: React.FC = () => (
 
 const MessageBubble: React.FC<{ message: ChatMessage; onConfirm: (opId: string, approved: boolean) => Promise<void>; onNavigate?: (page: string) => void }> = ({ message: msg, onConfirm, onNavigate }) => {
   const isUser = msg.role === 'user';
+  const hasEmbeddedBlock = !isUser && /```(?:embedded|widget)\b/i.test(msg.content || '');
+  const bubbleMaxWidth = hasEmbeddedBlock ? '92%' : '70%';
   return (
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 16, gap: 8 }}>
       {!isUser && (
@@ -294,7 +296,8 @@ const MessageBubble: React.FC<{ message: ChatMessage; onConfirm: (opId: string, 
         </div>
       )}
       <div style={{
-        maxWidth: '70%', padding: '10px 14px', borderRadius: 12,
+        maxWidth: bubbleMaxWidth, width: hasEmbeddedBlock ? bubbleMaxWidth : undefined,
+        minWidth: 0, padding: '10px 14px', borderRadius: 12,
         background: isUser ? 'linear-gradient(135deg, #0ea5e9, #8b5cf6)' : 'rgba(255,255,255,0.06)',
         color: isUser ? '#fff' : '#e2e8f0',
         fontSize: 14, lineHeight: 1.6, wordBreak: 'break-word',

@@ -7,11 +7,15 @@ import com.talent.label.common.BizException;
 import com.talent.label.domain.entity.CalcTaskRule;
 import com.talent.label.domain.entity.CalcTask;
 import com.talent.label.domain.entity.EmployeeTagResult;
+import com.talent.label.domain.entity.TagDefinition;
 import com.talent.label.domain.entity.TagRule;
+import com.talent.label.domain.entity.TagRuleOutput;
 import com.talent.label.mapper.CalcTaskMapper;
 import com.talent.label.mapper.CalcTaskRuleMapper;
 import com.talent.label.mapper.EmployeeTagResultMapper;
+import com.talent.label.mapper.TagDefinitionMapper;
 import com.talent.label.mapper.TagRuleMapper;
+import com.talent.label.mapper.TagRuleOutputMapper;
 import com.talent.label.service.TagRuleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +23,8 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +34,10 @@ public class TagRuleServiceImpl implements TagRuleService {
     private final EmployeeTagResultMapper tagResultMapper;
     private final CalcTaskRuleMapper taskRuleMapper;
     private final CalcTaskMapper taskMapper;
+    private final TagRuleOutputMapper ruleOutputMapper;
+    private final TagDefinitionMapper tagDefinitionMapper;
+
+    private static final Pattern TAG_CODE_PATTERN = Pattern.compile("(?:（|\\()(TAG_[A-Z0-9_]+)(?:）|\\))");
 
     @Override
     public Page<TagRule> page(int current, int size, String keyword, String status, String ruleType) {
@@ -81,6 +91,7 @@ public class TagRuleServiceImpl implements TagRuleService {
         rule.setStatus("UNPUBLISHED");
         rule.setVersionNo(1);
         ruleMapper.insert(rule);
+        syncRuleOutputs(rule.getId(), rule.getDslContent());
         return rule;
     }
 
@@ -109,6 +120,7 @@ public class TagRuleServiceImpl implements TagRuleService {
         existing.setRemark(rule.getRemark());
         existing.setUpdatedBy(rule.getUpdatedBy());
         ruleMapper.updateById(existing);
+        syncRuleOutputs(existing.getId(), existing.getDslContent());
         return existing;
     }
 
@@ -234,6 +246,7 @@ public class TagRuleServiceImpl implements TagRuleService {
         copy.setCreatedBy(source.getCreatedBy());
         copy.setUpdatedBy(source.getUpdatedBy());
         ruleMapper.insert(copy);
+        syncRuleOutputs(copy.getId(), copy.getDslContent());
         return copy;
     }
 
@@ -246,7 +259,47 @@ public class TagRuleServiceImpl implements TagRuleService {
         if (!taskRules.isEmpty()) {
             throw new BizException("该规则已被打标任务引用，不可删除。请先删除引用该规则的任务后再操作。");
         }
+        ruleOutputMapper.delete(new LambdaQueryWrapper<TagRuleOutput>().eq(TagRuleOutput::getRuleId, id));
         ruleMapper.deleteById(id);
+    }
+
+    private void syncRuleOutputs(Long ruleId, String dslContent) {
+        if (ruleId == null) return;
+
+        ruleOutputMapper.delete(new LambdaQueryWrapper<TagRuleOutput>().eq(TagRuleOutput::getRuleId, ruleId));
+
+        Set<String> tagCodes = extractTagCodesFromDsl(dslContent);
+        if (tagCodes.isEmpty()) return;
+
+        List<TagDefinition> tags = tagDefinitionMapper.selectList(
+                new LambdaQueryWrapper<TagDefinition>().in(TagDefinition::getTagCode, tagCodes));
+        if (tags.isEmpty()) return;
+
+        Map<String, Long> codeToId = new HashMap<>();
+        for (TagDefinition t : tags) {
+            codeToId.put(t.getTagCode(), t.getId());
+        }
+
+        for (String code : tagCodes) {
+            Long tagId = codeToId.get(code);
+            if (tagId == null) continue;
+            TagRuleOutput output = new TagRuleOutput();
+            output.setRuleId(ruleId);
+            output.setBranchId(null);
+            output.setTagId(tagId);
+            ruleOutputMapper.insert(output);
+        }
+    }
+
+    private Set<String> extractTagCodesFromDsl(String dslContent) {
+        Set<String> tagCodes = new LinkedHashSet<>();
+        if (!StringUtils.hasText(dslContent)) return tagCodes;
+
+        Matcher matcher = TAG_CODE_PATTERN.matcher(dslContent);
+        while (matcher.find()) {
+            tagCodes.add(matcher.group(1));
+        }
+        return tagCodes;
     }
 
     /** 检查规则是否被正式打标任务引用 */

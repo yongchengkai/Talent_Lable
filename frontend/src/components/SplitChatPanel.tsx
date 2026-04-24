@@ -158,6 +158,8 @@ const SplitChatPanel: React.FC<{ onClose: () => void; onNavigate?: (page: string
 
 const MiniMessage: React.FC<{ message: ChatMessage; onConfirm: (opId: string, approved: boolean) => Promise<void>; onNavigate?: (page: string) => void }> = ({ message: msg, onConfirm, onNavigate }) => {
   const isUser = msg.role === 'user';
+  const hasEmbeddedBlock = !isUser && /```(?:embedded|widget)\b/i.test(msg.content || '');
+  const bubbleMaxWidth = hasEmbeddedBlock ? '94%' : '80%';
   return (
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 10, gap: 6 }}>
       {!isUser && (
@@ -170,7 +172,8 @@ const MiniMessage: React.FC<{ message: ChatMessage; onConfirm: (opId: string, ap
         </div>
       )}
       <div style={{
-        maxWidth: '80%', padding: '8px 12px', borderRadius: 10,
+        maxWidth: bubbleMaxWidth, width: hasEmbeddedBlock ? bubbleMaxWidth : undefined,
+        minWidth: 0, padding: '8px 12px', borderRadius: 10,
         background: isUser ? '#1677ff' : '#fff',
         color: isUser ? '#fff' : '#333',
         fontSize: 13, lineHeight: 1.5, wordBreak: 'break-word',

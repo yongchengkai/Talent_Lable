@@ -58,12 +58,15 @@ public class ManageTagTool implements Function<ManageTagTool.Request, String> {
         Page<TagDefinition> page = tagService.page(1, 50, req.keyword(), req.status(), req.categoryId());
         List<Map<String, Object>> list = page.getRecords().stream().map(t -> {
             Map<String, Object> m = new LinkedHashMap<>();
+            List<Map<String, Object>> rules = tagService.getReferencingRules(t.getId());
             m.put("id", t.getId());
             m.put("tagCode", t.getTagCode());
             m.put("tagName", t.getTagName());
             m.put("categoryId", t.getCategoryId());
             m.put("tagSource", t.getTagSource());
             m.put("status", t.getStatus());
+            m.put("referencingRuleCount", rules.size());
+            m.put("referencedByRule", !rules.isEmpty());
             return m;
         }).toList();
         return toJson(Map.of("total", page.getTotal(), "records", list));

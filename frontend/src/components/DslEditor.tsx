@@ -9,6 +9,7 @@ interface DslEditorProps {
   onChange?: (value: string) => void;
   rows?: number;
   placeholder?: string;
+  showFieldActions?: boolean;
 }
 
 interface TagItem {
@@ -58,7 +59,7 @@ const PAGE_SIZE = 10;
 
 type PanelType = 'tag' | 'field' | null;
 
-const DslEditor: React.FC<DslEditorProps> = ({ value = '', onChange, rows = 8, placeholder }) => {
+const DslEditor: React.FC<DslEditorProps> = ({ value = '', onChange, rows = 8, placeholder, showFieldActions = true }) => {
   const [categories, setCategories] = useState<any[]>([]);
   const [panelType, setPanelType] = useState<PanelType>(null);
   const [searchText, setSearchText] = useState('');
@@ -164,7 +165,7 @@ const DslEditor: React.FC<DslEditorProps> = ({ value = '', onChange, rows = 8, p
     if (charBefore === '#' && (pos < 2 || newVal[pos - 2] !== '{')) {
       setTriggerPos(pos - 1);
       openPanel('tag');
-    } else if (charBefore === '@') {
+    } else if (showFieldActions && charBefore === '@') {
       setTriggerPos(pos - 1);
       openPanel('field');
     }
@@ -253,7 +254,7 @@ const DslEditor: React.FC<DslEditorProps> = ({ value = '', onChange, rows = 8, p
   ) : null;
 
   // 字段选择面板
-  const fieldPanel = panelType === 'field' ? createPortal(
+  const fieldPanel = showFieldActions && panelType === 'field' ? createPortal(
     <div style={{
       position: 'fixed',
       ...(panelPos.direction === 'down'
@@ -308,17 +309,21 @@ const DslEditor: React.FC<DslEditorProps> = ({ value = '', onChange, rows = 8, p
         background: 'rgba(255,255,255,0.02)',
         border: '1px solid rgba(255,255,255,0.04)',
       }}>
-        <Button size="small" type="text" onClick={() => handleToolbarInsert('field')}
-          style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, padding: '0 8px', height: 24 }}>
-          <span style={{ color: '#3b82f6', marginRight: 4 }}>@</span> 插入字段
-        </Button>
-        <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)' }} />
+        {showFieldActions && (
+          <>
+            <Button size="small" type="text" onClick={() => handleToolbarInsert('field')}
+              style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, padding: '0 8px', height: 24 }}>
+              <span style={{ color: '#3b82f6', marginRight: 4 }}>@</span> 插入字段
+            </Button>
+            <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)' }} />
+          </>
+        )}
         <Button size="small" type="text" onClick={() => handleToolbarInsert('tag')}
           style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, padding: '0 8px', height: 24 }}>
           <span style={{ color: '#06b6d4', marginRight: 4 }}>#</span> 插入标签
         </Button>
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>
-          输入 @ 或 # 也可触发
+          {showFieldActions ? '输入 @ 或 # 也可触发' : '输入 # 也可触发'}
         </span>
       </div>
 
@@ -328,7 +333,7 @@ const DslEditor: React.FC<DslEditorProps> = ({ value = '', onChange, rows = 8, p
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         rows={rows}
-        placeholder={placeholder || '输入规则 DSL（JSON 格式），输入 @ 插入字段，输入 # 插入标签'}
+        placeholder={placeholder || (showFieldActions ? '输入规则 DSL（JSON 格式），输入 @ 插入字段，输入 # 插入标签' : '输入规则 DSL（JSON 格式），输入 # 插入标签')}
         spellCheck={false}
         style={{
           width: '100%', resize: 'vertical', border: '1px solid rgba(255,255,255,0.1)',

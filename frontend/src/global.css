@@ -748,6 +748,21 @@ body::before {
 .markdown-body a:hover { text-decoration: underline; }
 .markdown-body strong { font-weight: 600; }
 
+/* Embedded/chart blocks in chat: keep full-width adaptive layout */
+.markdown-body .ai-rich-block,
+.markdown-body-dark .ai-rich-block {
+  width: 100%;
+  max-width: 100%;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.markdown-body .ai-rich-block > *,
+.markdown-body-dark .ai-rich-block > * {
+  width: 100%;
+  max-width: 100%;
+}
+
 /* ── Dark variant (ChatLayout) ── */
 .markdown-body-dark code {
   background: rgba(255,255,255,0.1); color: #22d3ee;

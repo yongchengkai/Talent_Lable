@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.talent.label.domain.entity.*;
 import com.talent.label.mapper.*;
+import com.talent.label.service.TagDefinitionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ public class GetTagStatsTool implements Function<GetTagStatsTool.Request, String
     private final TagCategoryMapper tagCategoryMapper;
     private final EmployeeTagResultMapper resultMapper;
     private final EmployeeMapper employeeMapper;
+    private final TagDefinitionService tagDefinitionService;
     private final ObjectMapper objectMapper;
 
     public record Request(
@@ -51,19 +53,34 @@ public class GetTagStatsTool implements Function<GetTagStatsTool.Request, String
 
             // 统计每个标签的覆盖人数
             List<Map<String, Object>> stats = new ArrayList<>();
+            List<Map<String, Object>> unreferencedTags = new ArrayList<>();
             for (TagDefinition tag : tags) {
                 Long hitCount = resultMapper.selectCount(
                         new LambdaQueryWrapper<EmployeeTagResult>()
                                 .eq(EmployeeTagResult::getTagId, tag.getId())
                                 .eq(EmployeeTagResult::getValidFlag, true));
+                List<Map<String, Object>> referencingRules = tagDefinitionService.getReferencingRules(tag.getId());
+                int referencingRuleCount = referencingRules.size();
+                boolean referencedByRule = referencingRuleCount > 0;
+
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("tagName", tag.getTagName());
                 item.put("tagCode", tag.getTagCode());
                 item.put("categoryName", categoryMap.getOrDefault(tag.getCategoryId(), "未知"));
                 item.put("hitCount", hitCount);
+                item.put("referencingRuleCount", referencingRuleCount);
+                item.put("referencedByRule", referencedByRule);
                 item.put("coverageRate",
                         totalEmployees > 0 ? String.format("%.1f%%", hitCount * 100.0 / totalEmployees) : "0%");
                 stats.add(item);
+
+                if (!referencedByRule) {
+                    Map<String, Object> unref = new LinkedHashMap<>();
+                    unref.put("tagName", tag.getTagName());
+                    unref.put("tagCode", tag.getTagCode());
+                    unref.put("categoryName", categoryMap.getOrDefault(tag.getCategoryId(), "未知"));
+                    unreferencedTags.add(unref);
+                }
             }
 
             // 按类目汇总
@@ -77,6 +94,9 @@ public class GetTagStatsTool implements Function<GetTagStatsTool.Request, String
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("totalEmployees", totalEmployees);
             response.put("totalTags", tags.size());
+            response.put("referencedTagCount", tags.size() - unreferencedTags.size());
+            response.put("unreferencedTagCount", unreferencedTags.size());
+            response.put("unreferencedTags", unreferencedTags);
             response.put("tagDetails", stats);
             response.put("categorySummary", categoryStats);
             return objectMapper.writeValueAsString(response);

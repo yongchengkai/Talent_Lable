@@ -1,27 +1,30 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Table, Space, Tag, Input, Select, Button, Modal } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { employeeApi } from '@/services/api';
 
 const { Option } = Select;
 
-export default function TagResultPage() {
+export default function TagResultPage({ embedded, embeddedFilters, onNavigate }: { embedded?: boolean; embeddedFilters?: Record<string, string>; embeddedAction?: string; onNavigate?: (page: string, filters?: Record<string, string>) => void } = {}) {
+  const routerNavigate = useNavigate();
+  const doNavigate = embedded ? onNavigate : (page: string) => routerNavigate(page);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [keyword, setKeyword] = useState('');
-  const [filterGrade, setFilterGrade] = useState<string>();
+  const [keyword, setKeyword] = useState(embeddedFilters?.keyword || '');
+  const [filterGrade, setFilterGrade] = useState<string | undefined>(embeddedFilters?.gradeLevel);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailData, setDetailData] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const fetchData = async (page = current, size = pageSize) => {
+  const fetchData = async (page = current, size = pageSize, kw = keyword, grade = filterGrade) => {
     setLoading(true);
     try {
-      const res: any = await employeeApi.tagResults({ current: page, size, keyword, gradeLevel: filterGrade });
+      const res: any = await employeeApi.tagResults({ current: page, size, keyword: kw, gradeLevel: grade });
       setData(res.data?.records || []);
       setTotal(res.data?.total || 0);
     } catch {} finally { setLoading(false); }
@@ -43,7 +46,7 @@ export default function TagResultPage() {
   const columns = [
     {
       title: '姓名', dataIndex: 'name', width: 100,
-      render: (name: string, record: any) => <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a>,
+      render: (name: string, record: any) => embedded ? <span style={{ fontWeight: 500 }}>{name}</span> : <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a>,
     },
     { title: '工号', dataIndex: 'employeeNo', width: 110, render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
     { title: '组织', dataIndex: 'orgName', width: 140 },
@@ -68,26 +71,46 @@ export default function TagResultPage() {
   const valueStyle: React.CSSProperties = { color: 'rgba(255,255,255,0.92)', fontWeight: 500 };
 
   return (
-    <div className="page-container">
-      <div className="page-toolbar">
-        <Space>
-          <Input placeholder="搜索姓名、工号" value={keyword} onChange={e => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} style={{ width: 220 }} />
-          <Select placeholder="职级" allowClear style={{ width: 100 }} value={filterGrade} onChange={v => setFilterGrade(v)}>
+    <div className={embedded ? undefined : "page-container"} style={embedded ? { width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' } : undefined}>
+      <div className={embedded ? undefined : "page-toolbar"} style={embedded ? { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' } : undefined}>
+        <Space size={embedded ? 6 : 8} wrap={embedded}>
+          <Input placeholder="搜索姓名、工号" size={embedded ? 'small' : 'middle'} value={keyword} onChange={e => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} style={{ width: embedded ? 170 : 220, fontSize: embedded ? 12 : undefined }} />
+          <Select placeholder="职级" allowClear size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 90 : 100, fontSize: embedded ? 12 : undefined }} value={filterGrade} onChange={v => setFilterGrade(v)}>
             {['P3','P4','P5','P6','P7','P8','P9','P10'].map(g => <Option key={g} value={g}>{g}</Option>)}
           </Select>
-          <Button onClick={() => fetchData(1)}>查询</Button>
-          <Button onClick={() => { setKeyword(''); setFilterGrade(undefined); fetchData(1); }}>重置</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => fetchData(1)} style={embedded ? { fontSize: 12 } : undefined}>查询</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => { setKeyword(''); setFilterGrade(undefined); fetchData(1, pageSize, '', undefined); }} style={embedded ? { fontSize: 12 } : undefined}>重置</Button>
         </Space>
       </div>
 
       <Table rowKey="id" columns={columns} dataSource={data} loading={loading}
+        size={embedded ? 'small' : undefined}
+        scroll={embedded ? { x: 960 } : undefined}
+        style={embedded ? { fontSize: 12 } : undefined}
         pagination={{
-          current, total, pageSize, showTotal: t => `共 ${t} 人`,
-          showSizeChanger: true, showQuickJumper: true,
-          pageSizeOptions: ['10', '20', '50', '100'],
+          current, total, pageSize: embedded ? 10 : pageSize, showTotal: t => `共 ${t} 人`,
+          showSizeChanger: true, showQuickJumper: !embedded,
+          pageSizeOptions: embedded ? ['5', '10', '20'] : ['10', '20', '50', '100'],
+          size: embedded ? 'small' : undefined,
           onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); },
         }}
       />
+
+      {embedded && (
+        <div style={{ padding: '4px 12px', borderTop: '1px solid rgba(255,255,255,0.04)', textAlign: 'right' }}>
+          <Button
+            type="link"
+            size="small"
+            style={{ fontSize: 12, padding: 0 }}
+            onClick={() => doNavigate?.('/app/tag-results', {
+              ...(keyword ? { keyword } : {}),
+              ...(filterGrade ? { gradeLevel: filterGrade } : {}),
+            })}
+          >
+            在页面中查看 →
+          </Button>
+        </div>
+      )}
 
       <Modal title="员工详情" open={detailOpen} onCancel={() => setDetailOpen(false)}
         footer={<Button onClick={() => setDetailOpen(false)}>关闭</Button>}

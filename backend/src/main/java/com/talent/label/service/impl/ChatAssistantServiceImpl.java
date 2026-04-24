@@ -10,10 +10,14 @@ import com.talent.label.domain.entity.AiChatMessage;
 import com.talent.label.domain.entity.AiChatSession;
 import com.talent.label.domain.entity.AiPendingOperation;
 import com.talent.label.domain.entity.AiSkill;
+import com.talent.label.domain.entity.AiWidgetType;
+import com.talent.label.domain.entity.EmployeeFieldRegistry;
 import com.talent.label.mapper.AiChatMessageMapper;
 import com.talent.label.mapper.AiChatSessionMapper;
 import com.talent.label.mapper.AiPendingOperationMapper;
 import com.talent.label.mapper.AiSkillMapper;
+import com.talent.label.mapper.AiWidgetTypeMapper;
+import com.talent.label.mapper.EmployeeFieldRegistryMapper;
 import com.talent.label.service.ChangeNotificationService;
 import com.talent.label.service.ChatAssistantService;
 import com.talent.label.service.SkillService;
@@ -50,6 +54,8 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
     private final AiSkillMapper skillMapper;
     private final AiPendingOperationMapper pendingOpMapper;
     private final ObjectMapper objectMapper;
+    private final AiWidgetTypeMapper widgetTypeMapper;
+    private final EmployeeFieldRegistryMapper fieldRegistryMapper;
     /** 由 AiToolConfig 注册的所有 FunctionCallback */
     private final List<FunctionCallback> talentLabelTools;
 
@@ -79,8 +85,20 @@ public class ChatAssistantServiceImpl implements ChatAssistantService {
                     log.warn("查询未读通知数失败", ex);
                 }
 
-                // 3. 构建 system prompt（自然语言描述版）
-                String systemPrompt = AssistantPrompts.buildSystemPrompt(ctx, activeSkills);
+                // 3. 加载可用 widget 类型
+                List<AiWidgetType> widgetTypes = widgetTypeMapper.selectList(
+                        new LambdaQueryWrapper<AiWidgetType>()
+                                .eq(AiWidgetType::getEnabled, true)
+                                .orderByAsc(AiWidgetType::getSortOrder));
+
+                // 3.5 加载可用字段列表
+                List<EmployeeFieldRegistry> fields = fieldRegistryMapper.selectList(
+                        new LambdaQueryWrapper<EmployeeFieldRegistry>()
+                                .eq(EmployeeFieldRegistry::getEnabled, true)
+                                .orderByAsc(EmployeeFieldRegistry::getSortOrder));
+
+                // 4. 构建 system prompt（自然语言描述版）
+                String systemPrompt = AssistantPrompts.buildSystemPrompt(ctx, activeSkills, widgetTypes, fields);
 
                 // 4. 加载历史消息
                 List<Message> messages = loadHistory(sessionId);

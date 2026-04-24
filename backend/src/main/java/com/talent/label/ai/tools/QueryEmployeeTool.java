@@ -6,9 +6,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.talent.label.domain.entity.Employee;
+import com.talent.label.domain.entity.EmployeeFieldRegistry;
 import com.talent.label.domain.entity.EmployeeTagResult;
 import com.talent.label.domain.entity.TagDefinition;
 import com.talent.label.mapper.EmployeeMapper;
+import com.talent.label.mapper.EmployeeFieldRegistryMapper;
 import com.talent.label.mapper.EmployeeTagResultMapper;
 import com.talent.label.mapper.TagDefinitionMapper;
 import lombok.RequiredArgsConstructor;
@@ -26,12 +28,13 @@ import java.util.stream.Collectors;
 public class QueryEmployeeTool implements Function<QueryEmployeeTool.Request, String> {
 
     private final EmployeeMapper employeeMapper;
+    private final EmployeeFieldRegistryMapper fieldRegistryMapper;
     private final EmployeeTagResultMapper tagResultMapper;
     private final TagDefinitionMapper tagDefinitionMapper;
     private final ObjectMapper objectMapper;
 
     public record Request(
-            @JsonProperty("action") @JsonPropertyDescription("操作类型：list/get/orgTree") String action,
+            @JsonProperty("action") @JsonPropertyDescription("操作类型：list/get/orgTree/listFields") String action,
             @JsonProperty("id") @JsonPropertyDescription("员工ID（get时必填）") Long id,
             @JsonProperty("keyword") @JsonPropertyDescription("搜索关键词：姓名或工号（list时可选）") String keyword,
             @JsonProperty("orgId") @JsonPropertyDescription("组织ID筛选（list时可选）") Long orgId,
@@ -45,6 +48,7 @@ public class QueryEmployeeTool implements Function<QueryEmployeeTool.Request, St
                 case "list" -> doList(req);
                 case "get" -> doGet(req);
                 case "orgTree" -> doOrgTree();
+                case "listFields" -> doListFields();
                 default -> toJson(Map.of("error", "不支持的操作: " + req.action()));
             };
         } catch (Exception e) {
@@ -131,6 +135,21 @@ public class QueryEmployeeTool implements Function<QueryEmployeeTool.Request, St
             return m;
         }).toList();
         return toJson(Map.of("total", orgs.size(), "organizations", orgs));
+    }
+
+    private String doListFields() {
+        List<EmployeeFieldRegistry> fields = fieldRegistryMapper.selectList(
+                new LambdaQueryWrapper<EmployeeFieldRegistry>()
+                        .eq(EmployeeFieldRegistry::getEnabled, true)
+                        .orderByAsc(EmployeeFieldRegistry::getSortOrder));
+        List<Map<String, String>> result = fields.stream().map(f -> {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("fieldCode", f.getFieldCode());
+            m.put("fieldName", f.getFieldName());
+            m.put("ref", "@{" + f.getFieldName() + "（" + f.getFieldCode() + "）}");
+            return m;
+        }).toList();
+        return toJson(Map.of("total", result.size(), "fields", result));
     }
 
     private String toJson(Object obj) {

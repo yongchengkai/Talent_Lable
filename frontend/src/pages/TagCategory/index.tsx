@@ -6,15 +6,16 @@ import { categoryApi, tagApi } from '@/services/api';
 
 const { Option } = Select;
 
-export default function TagCategoryPage() {
-  const navigate = useNavigate();
+export default function TagCategoryPage({ embedded, embeddedFilters, embeddedPrefill, embeddedAction, onNavigate }: { embedded?: boolean; embeddedFilters?: Record<string, string>; embeddedPrefill?: Record<string, any>; embeddedAction?: string; onNavigate?: (page: string, filters?: Record<string, string>) => void } = {}) {
+  const routerNavigate = useNavigate();
+  const doNavigate = embedded ? onNavigate : (page: string) => routerNavigate(page);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [keyword, setKeyword] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>();
+  const [keyword, setKeyword] = useState(embeddedFilters?.keyword || '');
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(embeddedFilters?.status);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingRecord, setEditingRecord] = useState<any>(null);
@@ -55,6 +56,37 @@ export default function TagCategoryPage() {
   };
 
   useEffect(() => { fetchData(1); }, []);
+
+  // embedded 模式下自动触发操作
+  useEffect(() => {
+    if (embedded && embeddedAction === 'create') {
+      setCreateDone(false);
+      setEditingId(null);
+      setEditingRecord(null);
+      form.resetFields();
+      form.setFieldsValue({ categoryCode: 'CAT_', ...(embeddedPrefill || {}) });
+    } else if (embedded && embeddedAction === 'edit') {
+      setEditDone(false);
+      const prefill = embeddedPrefill || {};
+      const id = prefill.id !== undefined ? Number(prefill.id) : null;
+      setEditingId(id && !Number.isNaN(id) ? id : null);
+      form.resetFields();
+      const doFill = async () => {
+        if (id && !Number.isNaN(id)) {
+          try {
+            const res: any = await categoryApi.getById(id);
+            const detail = res.data || {};
+            setEditingRecord(detail);
+            form.setFieldsValue(detail);
+            return;
+          } catch {}
+        }
+        setEditingRecord(prefill);
+        form.setFieldsValue(prefill);
+      };
+      doFill();
+    }
+  }, [embedded, embeddedAction, embeddedPrefill]);
 
   const handleSearch = () => { setCurrent(1); fetchData(1, keyword); };
 
@@ -136,7 +168,7 @@ export default function TagCategoryPage() {
           content: `类目「${record.categoryName}」下仍有 ${record.activeTagCount} 个启用标签，请先停用或迁移标签后再停用类目。`,
           okText: '前往标签迁移',
           cancelText: '取消',
-          onOk: () => navigate(`/app/tag-migration?sourceCatId=${record.id}`),
+          onOk: () => doNavigate?.(`/app/tag-migration?sourceCatId=${record.id}`),
         });
       } else {
         message.error(e.message);
@@ -153,7 +185,7 @@ export default function TagCategoryPage() {
         okText: '前往标签迁移',
         okCancel: true,
         cancelText: '取消',
-        onOk: () => navigate(`/app/tag-migration?sourceCatId=${record.id}`),
+        onOk: () => doNavigate?.(`/app/tag-migration?sourceCatId=${record.id}`),
       });
       return;
     }
@@ -261,6 +293,7 @@ export default function TagCategoryPage() {
     {
       title: '类目名称', dataIndex: 'categoryName', width: 180,
       render: (name: string, record: any) => (
+        embedded ? <span style={{ fontWeight: 500 }}>{name}</span> :
         <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a>
       ),
     },
@@ -269,6 +302,13 @@ export default function TagCategoryPage() {
     {
       title: '标签数量', dataIndex: 'tagCount', width: 140,
       render: (_: number, record: any) => (
+        embedded ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <TagsOutlined style={{ fontSize: 12 }} />
+            <span style={{ color: '#10b981' }}>{record.activeTagCount ?? 0} 启用</span>
+            <span style={{ color: 'rgba(255,255,255,0.3)' }}>{record.inactiveTagCount ?? 0} 停用</span>
+          </span>
+        ) : (
         <a className="action-link" onClick={() => openTagModal(record)}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <TagsOutlined style={{ fontSize: 12 }} />
@@ -276,6 +316,7 @@ export default function TagCategoryPage() {
             <span style={{ color: 'rgba(255,255,255,0.3)' }}>{record.inactiveTagCount ?? 0} 停用</span>
           </span>
         </a>
+        )
       ),
     },
     {
@@ -283,7 +324,7 @@ export default function TagCategoryPage() {
       render: (s: string) => <Tag color={s === 'ACTIVE' ? 'green' : 'default'}>{s === 'ACTIVE' ? '启用' : '停用'}</Tag>,
     },
     { title: '创建时间', dataIndex: 'createdAt', width: 180 },
-    {
+    ...(!embedded ? [{
       title: '操作', width: 220,
       render: (_: any, record: any) => (
         <Space>
@@ -295,28 +336,142 @@ export default function TagCategoryPage() {
           <a className="action-link action-link-danger" onClick={() => handleDelete(record)}>删除</a>
         </Space>
       ),
-    },
+    }] : []),
   ];
 
   const migLeftFiltered = filterTags(migLeftTags, migLeftFilter);
   const migRightFiltered = filterTags(migRightTags, migRightFilter);
 
+  const [createDone, setCreateDone] = useState(false);
+  const [editDone, setEditDone] = useState(false);
+
+  const isEmbeddedCreate = embedded && embeddedAction === 'create';
+  const isEmbeddedEdit = embedded && embeddedAction === 'edit';
+
+  // embedded create 模式：直接内联表单
+  if (isEmbeddedCreate) {
+    if (createDone) {
+      return (
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#10b981', fontWeight: 500, fontSize: 13 }}>✓ 标签类目创建成功</span>
+        </div>
+      );
+    }
+    return (
+      <div style={{ width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>新建标签类目</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <Form form={form} layout="vertical" size="small" initialValues={{ categoryCode: 'CAT_' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+              <Form.Item name="categoryCode" label={<span style={{ fontSize: 12 }}>类目编码</span>} rules={[{ required: true, message: '请输入类目编码' }]}
+                extra={<span style={{ fontSize: 11 }}>前缀 CAT_，全局唯一</span>}>
+                <Input placeholder="CAT_" style={{ fontSize: 12 }} />
+              </Form.Item>
+              <Form.Item name="categoryName" label={<span style={{ fontSize: 12 }}>类目名称</span>} rules={[{ required: true, message: '请输入类目名称' }]}>
+                <Input style={{ fontSize: 12 }} />
+              </Form.Item>
+            </div>
+            <Form.Item name="description" label={<span style={{ fontSize: 12 }}>说明</span>} style={{ marginBottom: 8 }}>
+              <Input.TextArea rows={2} style={{ fontSize: 12 }} />
+            </Form.Item>
+            <div style={{ textAlign: 'right' }}>
+              <Button type="primary" size="small" style={{ fontSize: 12 }} onClick={async () => {
+                try {
+                  const values = await form.validateFields();
+                  await categoryApi.create({ ...values, createdBy: 'admin', updatedBy: 'admin' });
+                  message.success('类目创建成功');
+                  setCreateDone(true);
+                } catch (e: any) {
+                  if (e.message) message.error(e.message);
+                }
+              }}>创建</Button>
+            </div>
+          </Form>
+        </div>
+      </div>
+    );
+  }
+
+  if (isEmbeddedEdit) {
+    if (!editingId) {
+      return (
+        <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#ef4444', fontWeight: 500, fontSize: 13 }}>缺少类目 ID，无法编辑</span>
+        </div>
+      );
+    }
+    if (editDone) {
+      return (
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#10b981', fontWeight: 500, fontSize: 13 }}>✓ 标签类目更新成功</span>
+        </div>
+      );
+    }
+    return (
+      <div style={{ width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>编辑标签类目</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <Form form={form} layout="vertical" size="small">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+              <Form.Item name="categoryCode" label={<span style={{ fontSize: 12 }}>类目编码</span>} rules={[{ required: true, message: '请输入类目编码' }]}>
+                <Input disabled style={{ fontSize: 12 }} />
+              </Form.Item>
+              <Form.Item name="categoryName" label={<span style={{ fontSize: 12 }}>类目名称</span>} rules={[{ required: true, message: '请输入类目名称' }]}>
+                <Input style={{ fontSize: 12 }} />
+              </Form.Item>
+            </div>
+            <Form.Item name="description" label={<span style={{ fontSize: 12 }}>说明</span>} style={{ marginBottom: 8 }}>
+              <Input.TextArea rows={2} style={{ fontSize: 12 }} />
+            </Form.Item>
+            <div style={{ textAlign: 'right' }}>
+              <Button type="primary" size="small" style={{ fontSize: 12 }} onClick={async () => {
+                try {
+                  const values = await form.validateFields();
+                  await categoryApi.update(editingId, { ...values, updatedBy: 'admin' });
+                  message.success('类目更新成功');
+                  setEditDone(true);
+                } catch (e: any) {
+                  if (e.message) message.error(e.message);
+                }
+              }}>保存</Button>
+            </div>
+          </Form>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="page-container">
-      <div className="page-toolbar">
-        <Space>
-          <Input placeholder="搜索类目名称、编码" value={keyword} onChange={(e) => setKeyword(e.target.value)} onPressEnter={handleSearch} prefix={<SearchOutlined />} style={{ width: 240 }} />
-          <Select placeholder="状态" allowClear style={{ width: 100 }} value={filterStatus} onChange={v => { setFilterStatus(v); }}>
+    <div className={embedded ? undefined : "page-container"} style={embedded ? { width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' } : undefined}>
+      <div className={embedded ? undefined : "page-toolbar"} style={embedded ? { padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)' } : undefined}>
+        <Space size={embedded ? 6 : 8} wrap={embedded}>
+          <Input placeholder="搜索类目名称、编码" value={keyword} onChange={(e) => setKeyword(e.target.value)} onPressEnter={handleSearch} prefix={<SearchOutlined />} size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 180 : 240, fontSize: embedded ? 12 : undefined }} />
+          <Select placeholder="状态" allowClear size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 80 : 100, fontSize: embedded ? 12 : undefined }} value={filterStatus} onChange={v => { setFilterStatus(v); }}>
             <Option value="ACTIVE">启用</Option><Option value="INACTIVE">停用</Option>
           </Select>
-          <Button onClick={handleSearch}>查询</Button>
-          <Button onClick={() => { setKeyword(''); setFilterStatus(undefined); fetchData(1, ''); }}>重置</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={handleSearch} style={embedded ? { fontSize: 12 } : undefined}>查询</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => { setKeyword(''); setFilterStatus(undefined); fetchData(1, ''); }} style={embedded ? { fontSize: 12 } : undefined}>重置</Button>
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建</Button>
+        {!embedded && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建</Button>}
       </div>
 
       <Table rowKey="id" columns={columns} dataSource={data} loading={loading}
-        pagination={{ current, total, pageSize, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: ['10', '20', '50', '100'], onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, keyword, s); } }} />
+        size={embedded ? 'small' : undefined}
+        scroll={embedded ? { x: 800 } : undefined}
+        style={embedded ? { fontSize: 12 } : undefined}
+        pagination={{ current, total, pageSize: embedded ? 10 : pageSize, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, showQuickJumper: !embedded, pageSizeOptions: embedded ? ['5', '10', '20'] : ['10', '20', '50', '100'], size: embedded ? 'small' : undefined, onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, keyword, s); } }} />
+
+      {embedded && (
+        <div style={{ padding: '4px 12px', borderTop: '1px solid rgba(255,255,255,0.04)', textAlign: 'right' }}>
+          <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }} onClick={() => onNavigate?.('/app/tag-categories', { ...(keyword ? { keyword } : {}), ...(filterStatus ? { status: filterStatus } : {}) })}>
+            在页面中查看 →
+          </Button>
+        </div>
+      )}
 
       {/* 新建/编辑类目 */}
       <Modal

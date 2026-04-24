@@ -37,14 +37,14 @@ const extractOutputTags = (dsl: string): { tagName: string; tagCode: string }[] 
   }
 };
 
-export default function RuleStructuredPage() {
+export default function RuleStructuredPage({ embedded, embeddedFilters, embeddedPrefill, embeddedAction, onNavigate }: { embedded?: boolean; embeddedFilters?: Record<string, string>; embeddedPrefill?: Record<string, any>; embeddedAction?: string; onNavigate?: (page: string, filters?: Record<string, string>) => void } = {}) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [keyword, setKeyword] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>();
+  const [keyword, setKeyword] = useState(embeddedFilters?.keyword || '');
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(embeddedFilters?.status);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form] = Form.useForm();
@@ -66,6 +66,40 @@ export default function RuleStructuredPage() {
 
   useEffect(() => { fetchData(1); }, []);
 
+  useEffect(() => {
+    if (embedded && embeddedAction === 'create') {
+      setCreateDone(false);
+      const prefill = embeddedPrefill || {};
+      const prefillDsl = prefill.dslContent || prefill.dsl || '';
+      setEditingId(null); form.resetFields(); setAiResult(''); setDslContent('');
+      form.setFieldsValue({ ruleCode: 'CR_', ...prefill, ...(prefillDsl ? { dslContent: prefillDsl } : {}) });
+      if (prefillDsl) setDslContent(prefillDsl);
+      setAiInput(prefill.prompt ? String(prefill.prompt) : '');
+    } else if (embedded && embeddedAction === 'edit') {
+      setEditDone(false);
+      const prefill = embeddedPrefill || {};
+      const id = prefill.id !== undefined ? Number(prefill.id) : null;
+      setEditingId(id && !Number.isNaN(id) ? id : null);
+      form.resetFields(); setAiResult('');
+      const applyValues = (source: any) => {
+        const sourceDsl = source.dslContent || source.dsl || '';
+        form.setFieldsValue({ ...source, ...(sourceDsl ? { dslContent: sourceDsl } : {}) });
+        setDslContent(sourceDsl || '');
+        setAiInput(source.prompt ? String(source.prompt) : '');
+      };
+      const doFill = async () => {
+        if (id && !Number.isNaN(id)) {
+          try {
+            const res: any = await ruleApi.getById(id);
+            applyValues(res.data || {});
+            return;
+          } catch {}
+        }
+        applyValues(prefill);
+      };
+      doFill();
+    }
+  }, [embedded, embeddedAction, embeddedPrefill]);
   const openCreate = () => {
     setEditingId(null); form.resetFields(); setAiResult(''); setDslContent('');
     form.setFieldsValue({ ruleCode: 'CR_' });
@@ -192,7 +226,7 @@ export default function RuleStructuredPage() {
   };
 
   const columns = [
-    { title: '规则名称', dataIndex: 'ruleName', width: 180, render: (name: string, record: any) => <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a> },
+    { title: '规则名称', dataIndex: 'ruleName', width: 180, render: (name: string, record: any) => embedded ? <span style={{ fontWeight: 500 }}>{name}</span> : <a className="action-link" style={{ fontWeight: 500 }} onClick={() => openDetail(record)}>{name}</a> },
     { title: '规则编码', dataIndex: 'ruleCode', width: 160 },
     { title: '规则描述', dataIndex: 'dslExplain', ellipsis: true, width: 200 },
     { title: '输出标签', dataIndex: 'dslContent', width: 180, render: (dsl: string) => {
@@ -207,7 +241,7 @@ export default function RuleStructuredPage() {
     }},
     { title: '发布状态', dataIndex: 'status', width: 90, render: (s: string) => <Tag color={publishStatusMap[s]?.color}>{publishStatusMap[s]?.text}</Tag> },
     { title: '关联正式任务数', dataIndex: 'id', width: 120, render: (_: any, record: any) => <FormalTaskCountCell ruleId={record.id} /> },
-    {
+    ...(!embedded ? [{
       title: '操作', width: 280,
       render: (_: any, record: any) => (
         <Space>
@@ -236,24 +270,178 @@ export default function RuleStructuredPage() {
           </ActionLink>
         </Space>
       ),
-    },
+    }] : []),
   ];
 
+  const [createDone, setCreateDone] = useState(false);
+  const [editDone, setEditDone] = useState(false);
+
+  const isEmbeddedCreate = embedded && embeddedAction === 'create';
+  const isEmbeddedEdit = embedded && embeddedAction === 'edit';
+
+  if (isEmbeddedCreate) {
+    if (createDone) {
+      return (
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#10b981', fontWeight: 500, fontSize: 13 }}>✓ 条件打标规则创建成功</span>
+        </div>
+      );
+    }
+    return (
+      <div style={{ width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>新建条件打标规则</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          {/* 基本信息 */}
+          <Form form={form} layout="vertical" size="small">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+              <Form.Item name="ruleCode" label={<span style={{ fontSize: 12 }}>规则编码</span>} rules={[{ required: true }]}>
+                <Input placeholder="CR_" style={{ fontSize: 12 }} />
+              </Form.Item>
+              <Form.Item name="ruleName" label={<span style={{ fontSize: 12 }}>规则名称</span>} rules={[{ required: true }]}>
+                <Input style={{ fontSize: 12 }} />
+              </Form.Item>
+            </div>
+            <Form.Item label={<span style={{ fontSize: 12 }}>规则 DSL（JSON 格式）</span>}>
+              <DslEditor value={dslContent} onChange={v => { setDslContent(v); form.setFieldsValue({ dslContent: v }); }} rows={8} showFieldActions={false} />
+            </Form.Item>
+            <Form.Item name="dslExplain" label={<span style={{ fontSize: 12 }}>规则解释</span>}>
+              <Input.TextArea rows={2} placeholder="用自然语言描述这条规则的业务含义" style={{ fontSize: 12 }} />
+            </Form.Item>
+          </Form>
+
+          {/* AI 对话生成 DSL（上下布局） */}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, marginTop: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)', display: 'inline-block', boxShadow: '0 0 6px rgba(14, 165, 233, 0.4)' }} />
+              <span style={{ fontWeight: 600, fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>AI 对话生成 DSL</span>
+            </div>
+            <Input.TextArea rows={3} placeholder="用自然语言描述规则，如：职级>=P7 且司龄>3年，输出核心骨干标签" value={aiInput} onChange={(e) => setAiInput(e.target.value)} style={{ fontSize: 12 }} />
+            <Button type="primary" size="small" style={{ marginTop: 8, background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)', border: 'none', fontSize: 12 }} loading={aiLoading} onClick={handleAiGenerate}>生成 DSL</Button>
+            {aiResult && (
+              <div style={{ marginTop: 8, padding: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 8, whiteSpace: 'pre-wrap', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, maxHeight: 200, overflow: 'auto', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, position: 'relative' }}>
+                <div style={{ position: 'absolute', top: 6, right: 8, fontSize: 9, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI Generated</div>
+                {aiResult}
+              </div>
+            )}
+          </div>
+
+          <div style={{ textAlign: 'right', marginTop: 12 }}>
+            <Button type="primary" size="small" style={{ fontSize: 12 }} onClick={async () => {
+              try {
+                const values = await form.validateFields();
+                if (!dslContent.trim()) { message.warning('请输入规则 DSL'); return; }
+                await ruleApi.create({ ...values, dslContent, ruleType: 'STRUCTURED', createdBy: 'admin', updatedBy: 'admin' });
+                message.success('规则创建成功');
+                setCreateDone(true);
+              } catch (e: any) {
+                if (e.message) message.error(e.message);
+              }
+            }}>创建</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isEmbeddedEdit) {
+    if (!editingId) {
+      return (
+        <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#ef4444', fontWeight: 500, fontSize: 13 }}>缺少规则 ID，无法编辑</span>
+        </div>
+      );
+    }
+    if (editDone) {
+      return (
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#10b981', fontWeight: 500, fontSize: 13 }}>✓ 条件打标规则更新成功</span>
+        </div>
+      );
+    }
+    return (
+      <div style={{ width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>编辑条件打标规则</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          <Form form={form} layout="vertical" size="small">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+              <Form.Item name="ruleCode" label={<span style={{ fontSize: 12 }}>规则编码</span>} rules={[{ required: true }]}>
+                <Input disabled style={{ fontSize: 12 }} />
+              </Form.Item>
+              <Form.Item name="ruleName" label={<span style={{ fontSize: 12 }}>规则名称</span>} rules={[{ required: true }]}>
+                <Input style={{ fontSize: 12 }} />
+              </Form.Item>
+            </div>
+            <Form.Item label={<span style={{ fontSize: 12 }}>规则 DSL（JSON 格式）</span>}>
+              <DslEditor value={dslContent} onChange={v => { setDslContent(v); form.setFieldsValue({ dslContent: v }); }} rows={8} showFieldActions={false} />
+            </Form.Item>
+            <Form.Item name="dslExplain" label={<span style={{ fontSize: 12 }}>规则解释</span>}>
+              <Input.TextArea rows={2} placeholder="用自然语言描述这条规则的业务含义" style={{ fontSize: 12 }} />
+            </Form.Item>
+          </Form>
+
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, marginTop: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)', display: 'inline-block', boxShadow: '0 0 6px rgba(14, 165, 233, 0.4)' }} />
+              <span style={{ fontWeight: 600, fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>AI 对话生成 DSL</span>
+            </div>
+            <Input.TextArea rows={3} placeholder="用自然语言描述规则，如：职级>=P7 且司龄>3年，输出核心骨干标签" value={aiInput} onChange={(e) => setAiInput(e.target.value)} style={{ fontSize: 12 }} />
+            <Button type="primary" size="small" style={{ marginTop: 8, background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)', border: 'none', fontSize: 12 }} loading={aiLoading} onClick={handleAiGenerate}>生成 DSL</Button>
+            {aiResult && (
+              <div style={{ marginTop: 8, padding: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 8, whiteSpace: 'pre-wrap', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, maxHeight: 200, overflow: 'auto', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, position: 'relative' }}>
+                <div style={{ position: 'absolute', top: 6, right: 8, fontSize: 9, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI Generated</div>
+                {aiResult}
+              </div>
+            )}
+          </div>
+
+          <div style={{ textAlign: 'right', marginTop: 12 }}>
+            <Button type="primary" size="small" style={{ fontSize: 12 }} onClick={async () => {
+              try {
+                const values = await form.validateFields();
+                if (!dslContent.trim()) { message.warning('请输入规则 DSL'); return; }
+                await ruleApi.update(editingId, { ...values, dslContent, ruleType: 'STRUCTURED', updatedBy: 'admin' });
+                message.success('规则更新成功');
+                setEditDone(true);
+              } catch (e: any) {
+                if (e.message) message.error(e.message);
+              }
+            }}>保存</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="page-container">
-      <div className="page-toolbar">
-        <Space>
-          <Input placeholder="搜索规则名称、编码" value={keyword} onChange={(e) => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} style={{ width: 240 }} />
-          <Select placeholder="发布状态" allowClear style={{ width: 120 }} value={filterStatus} onChange={v => { setFilterStatus(v); }}>
+    <div className={embedded ? undefined : "page-container"} style={embedded ? { width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' } : undefined}>
+      <div className={embedded ? undefined : "page-toolbar"} style={embedded ? { padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)' } : undefined}>
+        <Space size={embedded ? 6 : 8} wrap={embedded}>
+          <Input placeholder="搜索规则名称、编码" value={keyword} onChange={(e) => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 180 : 240, fontSize: embedded ? 12 : undefined }} />
+          <Select placeholder="发布状态" allowClear size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 90 : 120, fontSize: embedded ? 12 : undefined }} value={filterStatus} onChange={v => { setFilterStatus(v); }}>
             <Option value="UNPUBLISHED">未发布</Option><Option value="PUBLISHED">已发布</Option>
           </Select>
-          <Button onClick={() => fetchData(1)}>查询</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => fetchData(1)} style={embedded ? { fontSize: 12 } : undefined}>查询</Button>
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建</Button>
+        {!embedded && <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建</Button>}
       </div>
 
       <Table rowKey="id" columns={columns} dataSource={data} loading={loading}
-        pagination={{ current, total, pageSize, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: ['10', '20', '50', '100'], onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); } }} />
+        size={embedded ? 'small' : undefined}
+        scroll={embedded ? { x: 900 } : undefined}
+        style={embedded ? { fontSize: 12 } : undefined}
+        pagination={{ current, total, pageSize: embedded ? 10 : pageSize, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, showQuickJumper: !embedded, pageSizeOptions: embedded ? ['5', '10', '20'] : ['10', '20', '50', '100'], size: embedded ? 'small' : undefined, onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); } }} />
+
+      {embedded && (
+        <div style={{ padding: '4px 12px', borderTop: '1px solid rgba(255,255,255,0.04)', textAlign: 'right' }}>
+          <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }} onClick={() => onNavigate?.('/app/rules/structured')}>
+            在页面中查看 →
+          </Button>
+        </div>
+      )}
 
       {/* 详情弹窗 */}
       <Modal title="规则详情" open={detailOpen} onCancel={() => setDetailOpen(false)} maskClosable={false} footer={
@@ -303,41 +491,40 @@ export default function RuleStructuredPage() {
       </Modal>
 
       {/* 编辑弹窗 */}
-      <Modal title={editingId ? '编辑规则' : '新建规则'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} width={1000} maskClosable={false} destroyOnClose>
-        <div style={{ display: 'flex', gap: 24 }}>
-          <div style={{ flex: 3 }}>
-            <Form form={form} layout="vertical">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                <Form.Item name="ruleCode" label="规则编码" rules={[{ required: true }]}>
-                  <Input disabled={!!editingId} placeholder="CR_" />
-                </Form.Item>
-                <Form.Item name="ruleName" label="规则名称" rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
-              </div>
-              <Form.Item label="规则 DSL（JSON 格式）">
-                <DslEditor value={dslContent} onChange={v => { setDslContent(v); form.setFieldsValue({ dslContent: v }); }} rows={12} />
-              </Form.Item>
-              <Form.Item name="dslExplain" label="规则解释">
-                <Input.TextArea rows={2} placeholder="用自然语言描述这条规则的业务含义" />
-              </Form.Item>
-            </Form>
+      <Modal title={editingId ? '编辑规则' : '新建规则'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} width={720} maskClosable={false} destroyOnClose>
+        <Form form={form} layout="vertical">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+            <Form.Item name="ruleCode" label="规则编码" rules={[{ required: true }]}>
+              <Input disabled={!!editingId} placeholder="CR_" />
+            </Form.Item>
+            <Form.Item name="ruleName" label="规则名称" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
           </div>
-          <div style={{ flex: 2, borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 24, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+
+          {/* AI 对话生成 DSL */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', padding: 16, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)', display: 'inline-block', boxShadow: '0 0 8px rgba(14, 165, 233, 0.4)' }} />
               <span style={{ fontWeight: 700, fontSize: 14, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.02em' }}>AI 对话生成 DSL</span>
             </div>
-            <Input.TextArea style={{ flex: 1, minHeight: 120 }} placeholder="用自然语言描述规则，如：职级>=P7 且司龄>3年，输出核心骨干标签" value={aiInput} onChange={(e) => setAiInput(e.target.value)} />
-            <Button type="primary" style={{ marginTop: 12, background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)', border: 'none', boxShadow: '0 2px 10px rgba(14, 165, 233, 0.2)' }} loading={aiLoading} onClick={handleAiGenerate}>生成 DSL</Button>
+            <Input.TextArea rows={3} placeholder="用自然语言描述规则，如：职级>=P7 且司龄>3年，输出核心骨干标签" value={aiInput} onChange={(e) => setAiInput(e.target.value)} />
+            <Button type="primary" style={{ marginTop: 10, background: 'linear-gradient(135deg, #0ea5e9, #8b5cf6)', border: 'none', boxShadow: '0 2px 10px rgba(14, 165, 233, 0.2)' }} loading={aiLoading} onClick={handleAiGenerate}>生成 DSL</Button>
             {aiResult && (
-              <div style={{ marginTop: 16, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 12, whiteSpace: 'pre-wrap', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, maxHeight: 300, overflow: 'auto', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', lineHeight: 1.7, position: 'relative' }}>
-                <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 10, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI Generated</div>
+              <div style={{ marginTop: 12, padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 8, whiteSpace: 'pre-wrap', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, maxHeight: 200, overflow: 'auto', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', lineHeight: 1.7, position: 'relative' }}>
+                <div style={{ position: 'absolute', top: 6, right: 8, fontSize: 10, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI Generated</div>
                 {aiResult}
               </div>
             )}
           </div>
-        </div>
+
+          <Form.Item label="规则 DSL（JSON 格式）">
+            <DslEditor value={dslContent} onChange={v => { setDslContent(v); form.setFieldsValue({ dslContent: v }); }} rows={10} />
+          </Form.Item>
+          <Form.Item name="dslExplain" label="规则解释">
+            <Input.TextArea rows={2} placeholder="用自然语言描述这条规则的业务含义" />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ChartRenderer from './ChartRenderer';
-import WidgetRenderer from './widgets/WidgetRenderer';
+import EmbeddedRenderer from './EmbeddedRenderer';
 
 interface Props {
   content: string;
@@ -28,13 +28,26 @@ const MessageContent: React.FC<Props> = ({ content, isStreaming, isDark = false,
     prevStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
+  const isRichBlockClass = (className?: string) =>
+    className === 'language-chart' || className === 'language-embedded';
+
   const components = useMemo(() => ({
+    pre({ children }: { children?: React.ReactNode }) {
+      const childArray = React.Children.toArray(children);
+      if (childArray.length === 1 && React.isValidElement(childArray[0])) {
+        const node = childArray[0] as React.ReactElement<{ className?: string }>;
+        if (isRichBlockClass(node.props.className)) {
+          return <div className="ai-rich-block">{node}</div>;
+        }
+      }
+      return <pre>{children}</pre>;
+    },
     code({ className, children }: { className?: string; children?: React.ReactNode }) {
       if (className === 'language-chart') {
         return <ChartRenderer code={String(children).trim()} isDark={isDark} />;
       }
-      if (className === 'language-widget') {
-        return <WidgetRenderer code={String(children).trim()} onNavigate={(...args) => onNavigateRef.current?.(...args)} />;
+      if (className === 'language-embedded') {
+        return <EmbeddedRenderer code={String(children).trim()} onNavigate={(...args) => onNavigateRef.current?.(...args)} />;
       }
       return <code className={className}>{children}</code>;
     },

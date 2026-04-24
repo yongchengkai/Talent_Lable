@@ -18,14 +18,14 @@ const statusMap: Record<string, { text: string; color: string }> = {
 
 type RuleFilter = 'all' | 'success' | 'failed';
 
-export default function SimulationPage() {
+export default function SimulationPage({ embedded, embeddedFilters, embeddedPrefill, embeddedAction, onNavigate }: { embedded?: boolean; embeddedFilters?: Record<string, string>; embeddedPrefill?: Record<string, any>; embeddedAction?: string; onNavigate?: (page: string, filters?: Record<string, string>) => void } = {}) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [keyword, setKeyword] = useState('');
-  const [filterTaskStatus, setFilterTaskStatus] = useState<string>();
+  const [keyword, setKeyword] = useState(embeddedFilters?.keyword || '');
+  const [filterTaskStatus, setFilterTaskStatus] = useState<string | undefined>(embeddedFilters?.taskStatus);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -58,6 +58,12 @@ export default function SimulationPage() {
 
   useEffect(() => { fetchData(1); }, []);
 
+  const isEmbeddedCreate = embedded && embeddedAction === 'create';
+  const isEmbeddedEdit = embedded && embeddedAction === 'edit';
+
+  useEffect(() => {
+    if (isEmbeddedCreate) setCreateOpen(false);
+  }, [isEmbeddedCreate]);
   const handleRun = async (record: any) => {
     try {
       await taskApi.run(record.id);
@@ -122,7 +128,7 @@ export default function SimulationPage() {
   ];
 
   const columns = [
-    { title: '方案名称', dataIndex: 'taskName', width: 200, render: (name: string, record: any) => <a className="action-link" style={{ fontWeight: 500 }} onClick={() => { setViewRecord(record); setViewOpen(true); }}>{name}</a> },
+    { title: '方案名称', dataIndex: 'taskName', width: 200, render: (name: string, record: any) => embedded ? <span style={{ fontWeight: 500 }}>{name}</span> : <a className="action-link" style={{ fontWeight: 500 }} onClick={() => { setViewRecord(record); setViewOpen(true); }}>{name}</a> },
     { title: '任务编号', dataIndex: 'taskNo', width: 150 },
     { title: '状态', dataIndex: 'taskStatus', width: 110, render: (s: string, record: any) => {
       if (s === 'RUNNING') return <Tag icon={<span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#1890ff', marginRight: 6, animation: 'pulse 1.5s infinite' }} />} color="processing">运行中</Tag>;
@@ -133,7 +139,7 @@ export default function SimulationPage() {
     { title: '成功', dataIndex: 'successCount', width: 70, render: (v: number, r: any) => r.taskStatus === 'INIT' ? <span style={{ color: 'rgba(255,255,255,0.2)' }}>-</span> : <CountCell value={v} record={r} filter="success" color="#10b981" /> },
     { title: '失败', dataIndex: 'failCount', width: 70, render: (v: number, r: any) => r.taskStatus === 'INIT' ? <span style={{ color: 'rgba(255,255,255,0.2)' }}>-</span> : <CountCell value={v} record={r} filter="failed" color="#ef4444" /> },
     { title: '创建时间', dataIndex: 'createdAt', width: 170 },
-    {
+    ...(!embedded ? [{
       title: '操作', width: 280,
       render: (_: any, record: any) => (
         <Space>
@@ -176,24 +182,52 @@ export default function SimulationPage() {
           </ActionLink>
         </Space>
       ),
-    },
+    }] : []),
   ];
 
+  if (isEmbeddedCreate) {
+    return <CreateModal open={false} onClose={() => {}} onSuccess={() => fetchData()} inline prefill={embeddedPrefill} />;
+  }
+  if (isEmbeddedEdit) {
+    const prefill = embeddedPrefill || {};
+    const embeddedRecord = {
+      id: prefill.id !== undefined ? Number(prefill.id) : undefined,
+      taskName: prefill.taskName || prefill.name || '',
+      taskType: prefill.taskType || prefill.scopeType || 'FULL',
+      taskScope: prefill.taskScope || (prefill.orgIds || prefill.employeeIds ? { orgIds: prefill.orgIds || [], employeeIds: prefill.employeeIds || [] } : null),
+      ruleIds: prefill.ruleIds,
+      ruleNames: prefill.ruleNames,
+    };
+    return <EditModal open={false} record={embeddedRecord} onClose={() => {}} onSuccess={() => fetchData()} inline />;
+  }
+
   return (
-    <div className="page-container">
-      <div className="page-toolbar">
-        <Space>
-          <Input placeholder="搜索方案名称、编号" value={keyword} onChange={e => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} style={{ width: 240 }} />
-          <Select placeholder="运行状态" allowClear style={{ width: 120 }} value={filterTaskStatus} onChange={v => setFilterTaskStatus(v)}>
+    <div className={embedded ? undefined : "page-container"} style={embedded ? { width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' } : undefined}>
+      <div className={embedded ? undefined : "page-toolbar"} style={embedded ? { padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)' } : undefined}>
+        <Space size={embedded ? 6 : 8} wrap={embedded}>
+          <Input placeholder="搜索方案名称、编号" value={keyword} onChange={e => setKeyword(e.target.value)} onPressEnter={() => fetchData(1)} prefix={<SearchOutlined />} size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 180 : 240, fontSize: embedded ? 12 : undefined }} />
+          <Select placeholder="运行状态" allowClear size={embedded ? 'small' : 'middle'} style={{ width: embedded ? 90 : 120, fontSize: embedded ? 12 : undefined }} value={filterTaskStatus} onChange={v => setFilterTaskStatus(v)}>
             <Option value="INIT">待运行</Option><Option value="RUNNING">运行中</Option><Option value="SUCCESS">运行成功</Option><Option value="FAILED">运行失败</Option>
           </Select>
-          <Button onClick={() => fetchData(1)}>查询</Button>
-          <Button onClick={() => { setKeyword(''); setFilterTaskStatus(undefined); fetchData(1); }}>重置</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => fetchData(1)} style={embedded ? { fontSize: 12 } : undefined}>查询</Button>
+          <Button size={embedded ? 'small' : 'middle'} onClick={() => { setKeyword(''); setFilterTaskStatus(undefined); fetchData(1); }} style={embedded ? { fontSize: 12 } : undefined}>重置</Button>
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建</Button>
+        {!embedded && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建</Button>}
       </div>
+
       <Table rowKey="id" columns={columns} dataSource={data} loading={loading}
-        pagination={{ current, total, pageSize, showTotal: t => `共 ${t} 条`, showSizeChanger: true, onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); } }} />
+        size={embedded ? 'small' : undefined}
+        scroll={embedded ? { x: 900 } : undefined}
+        style={embedded ? { fontSize: 12 } : undefined}
+        pagination={{ current, total, pageSize: embedded ? 10 : pageSize, showTotal: t => `共 ${t} 条`, showSizeChanger: true, showQuickJumper: !embedded, pageSizeOptions: embedded ? ['5', '10', '20'] : ['10', '20', '50', '100'], size: embedded ? 'small' : undefined, onChange: (p, s) => { setCurrent(p); setPageSize(s); fetchData(p, s); } }} />
+
+      {embedded && (
+        <div style={{ padding: '4px 12px', borderTop: '1px solid rgba(255,255,255,0.04)', textAlign: 'right' }}>
+          <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }} onClick={() => onNavigate?.('/app/tasks/simulation')}>
+            在页面中查看 →
+          </Button>
+        </div>
+      )}
 
       <CreateModal open={createOpen} onClose={() => setCreateOpen(false)} onSuccess={() => fetchData()} />
       <EditModal open={editOpen} record={editRecord} onClose={() => { setEditOpen(false); setEditRecord(null); }} onSuccess={() => fetchData()} />

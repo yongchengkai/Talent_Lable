@@ -9,33 +9,63 @@ interface Props {
   record: any;
   onClose: () => void;
   onSuccess: () => void;
+  inline?: boolean;
 }
 
-export default function EditModal({ open, record, onClose, onSuccess }: Props) {
+export default function EditModal({ open, record, onClose, onSuccess, inline }: Props) {
   const [form] = Form.useForm();
   const [scope, setScope] = useState<ScopeValue>({ type: 'FULL', orgIds: [], employeeIds: [] });
   const [rulePickerOpen, setRulePickerOpen] = useState(false);
   const [selectedRuleIds, setSelectedRuleIds] = useState<number[]>([]);
   const [selectedRuleNames, setSelectedRuleNames] = useState<string[]>([]);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (!open || !record) return;
-    form.setFieldsValue({ taskName: record.taskName });
-    if (record.taskScope && record.taskType !== 'FULL') {
-      try {
-        const parsed = JSON.parse(record.taskScope);
-        setScope({ type: 'CUSTOM', orgIds: parsed.orgIds || [], employeeIds: parsed.employeeIds || [] });
-      } catch { setScope({ type: 'FULL', orgIds: [], employeeIds: [] }); }
-    } else {
-      setScope({ type: 'FULL', orgIds: [], employeeIds: [] });
-    }
-    setSelectedRuleIds([]); setSelectedRuleNames([]);
-    taskApi.getRules(record.id).then((res: any) => {
-      const rules = res.data || [];
-      setSelectedRuleIds(rules.map((r: any) => r.ruleId));
-      setSelectedRuleNames(rules.map((r: any) => r.ruleName));
-    }).catch(() => {});
-  }, [open, record]);
+    if ((!open && !inline) || !record) return;
+    let cancelled = false;
+    const applyRecordValues = (source: any) => {
+      form.setFieldsValue({ taskName: source.taskName || '' });
+      if (source.taskScope && source.taskType !== 'FULL') {
+        try {
+          const parsed = typeof source.taskScope === 'string' ? JSON.parse(source.taskScope) : source.taskScope;
+          setScope({ type: 'CUSTOM', orgIds: parsed.orgIds || [], employeeIds: parsed.employeeIds || [] });
+        } catch {
+          setScope({ type: 'FULL', orgIds: [], employeeIds: [] });
+        }
+      } else {
+        setScope({ type: 'FULL', orgIds: [], employeeIds: [] });
+      }
+    };
+    const doFill = async () => {
+      setDone(false);
+      setSelectedRuleIds([]);
+      setSelectedRuleNames([]);
+      let source = record;
+      if (record.id) {
+        try {
+          const res: any = await taskApi.getById(record.id);
+          source = { ...record, ...(res.data || {}) };
+        } catch {}
+      }
+      if (cancelled) return;
+      applyRecordValues(source);
+      if (record.id) {
+        taskApi.getRules(record.id).then((res: any) => {
+          if (cancelled) return;
+          const rules = res.data || [];
+          setSelectedRuleIds(rules.map((r: any) => r.ruleId));
+          setSelectedRuleNames(rules.map((r: any) => r.ruleName));
+        }).catch(() => {});
+      } else {
+        const prefillRuleIds = Array.isArray(record.ruleIds) ? record.ruleIds : [];
+        const prefillRuleNames = Array.isArray(record.ruleNames) ? record.ruleNames : [];
+        setSelectedRuleIds(prefillRuleIds.map((id: any) => Number(id)).filter((id: number) => !Number.isNaN(id)));
+        setSelectedRuleNames(prefillRuleNames.map((n: any) => String(n)));
+      }
+    };
+    doFill();
+    return () => { cancelled = true; };
+  }, [open, inline, record]);
 
   const handleOk = async () => {
     const values = await form.validateFields();
@@ -47,8 +77,12 @@ export default function EditModal({ open, record, onClose, onSuccess }: Props) {
         ruleIds: selectedRuleIds,
       });
       message.success('更新成功');
-      onSuccess();
-      handleClose();
+      if (inline) {
+        setDone(true);
+      } else {
+        onSuccess();
+        handleClose();
+      }
     } catch (e: any) { message.error(e.message); }
   };
 
@@ -69,35 +103,71 @@ export default function EditModal({ open, record, onClose, onSuccess }: Props) {
     setRulePickerOpen(false);
   };
 
+  const formContent = (
+    <Form form={form} layout="vertical" size={inline ? 'small' : undefined}>
+      <Form.Item name="taskName" label={inline ? <span style={{ fontSize: 12 }}>方案名称</span> : '方案名称'} rules={[{ required: true }]}>
+        <Input placeholder="输入方案名称" style={inline ? { fontSize: 12 } : undefined} />
+      </Form.Item>
+      <Form.Item label={inline ? <span style={{ fontSize: 12 }}>打标范围</span> : '打标范围'}>
+        <ScopeSelector value={scope} onChange={setScope} />
+      </Form.Item>
+      <Form.Item label={inline ? <span style={{ fontSize: 12 }}>关联规则</span> : '关联规则'}>
+        <div>
+          <Button onClick={() => setRulePickerOpen(true)} size={inline ? 'small' : undefined} style={{ marginBottom: 8, ...(inline ? { fontSize: 12 } : {}) }}>
+            选择规则（已选 {selectedRuleIds.length} 条）
+          </Button>
+          {selectedRuleNames.length > 0 ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {selectedRuleNames.map((name, i) => (
+                <Tag key={i} closable onClose={() => {
+                  setSelectedRuleIds(prev => prev.filter((_, idx) => idx !== i));
+                  setSelectedRuleNames(prev => prev.filter((_, idx) => idx !== i));
+                }}>{name}</Tag>
+              ))}
+            </div>
+          ) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>无关联规则</span>}
+        </div>
+      </Form.Item>
+    </Form>
+  );
+
+  if (inline) {
+    if (!record?.id) {
+      return (
+        <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#ef4444', fontWeight: 500, fontSize: 13 }}>缺少任务 ID，无法编辑模拟方案</span>
+        </div>
+      );
+    }
+    if (done) {
+      return (
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.2)', padding: '12px 16px', margin: '8px 0' }}>
+          <span style={{ color: '#10b981', fontWeight: 500, fontSize: 13 }}>✓ 模拟方案更新成功</span>
+        </div>
+      );
+    }
+    return (
+      <div style={{ width: '100%', maxWidth: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', margin: '8px 0' }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>编辑模拟方案</span>
+        </div>
+        <div style={{ padding: '12px 16px' }}>
+          {formContent}
+          <div style={{ textAlign: 'right' }}>
+            <Button type="primary" size="small" style={{ fontSize: 12 }} onClick={handleOk}>保存</Button>
+          </div>
+        </div>
+        <RulePickerModal open={rulePickerOpen} value={selectedRuleIds}
+                         onOk={handleRulePickerOk} onCancel={() => setRulePickerOpen(false)} />
+      </div>
+    );
+  }
+
   return (
     <>
       <Modal title="编辑模拟方案" open={open} width={860} maskClosable={false} destroyOnClose
              onOk={handleOk} onCancel={handleClose} okText="确定">
-        <Form form={form} layout="vertical">
-          <Form.Item name="taskName" label="方案名称" rules={[{ required: true }]}>
-            <Input placeholder="输入方案名称" />
-          </Form.Item>
-          <Form.Item label="打标范围">
-            <ScopeSelector value={scope} onChange={setScope} />
-          </Form.Item>
-          <Form.Item label="关联规则">
-            <div>
-              <Button onClick={() => setRulePickerOpen(true)} style={{ marginBottom: 8 }}>
-                选择规则（已选 {selectedRuleIds.length} 条）
-              </Button>
-              {selectedRuleNames.length > 0 ? (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {selectedRuleNames.map((name, i) => (
-                    <Tag key={i} closable onClose={() => {
-                      setSelectedRuleIds(prev => prev.filter((_, idx) => idx !== i));
-                      setSelectedRuleNames(prev => prev.filter((_, idx) => idx !== i));
-                    }}>{name}</Tag>
-                  ))}
-                </div>
-              ) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>无关联规则</span>}
-            </div>
-          </Form.Item>
-        </Form>
+        {formContent}
       </Modal>
       <RulePickerModal open={rulePickerOpen} value={selectedRuleIds}
                        onOk={handleRulePickerOk} onCancel={() => setRulePickerOpen(false)} />

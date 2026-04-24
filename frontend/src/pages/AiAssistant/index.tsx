@@ -171,6 +171,8 @@ const AiAssistant: React.FC = () => {
 
 const MessageBubble: React.FC<{ message: ChatMessage; onConfirm: (opId: string, approved: boolean) => Promise<void> }> = ({ message: msg, onConfirm }) => {
   const isUser = msg.role === 'user';
+  const hasEmbeddedBlock = !isUser && /```(?:embedded|widget)\b/i.test(msg.content || '');
+  const bubbleMaxWidth = hasEmbeddedBlock ? '92%' : '70%';
   return (
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 16, gap: 8 }}>
       {!isUser && (
@@ -183,7 +185,8 @@ const MessageBubble: React.FC<{ message: ChatMessage; onConfirm: (opId: string, 
         </div>
       )}
       <div style={{
-        maxWidth: '70%', padding: '10px 14px', borderRadius: 12,
+        maxWidth: bubbleMaxWidth, width: hasEmbeddedBlock ? bubbleMaxWidth : undefined,
+        minWidth: 0, padding: '10px 14px', borderRadius: 12,
         background: isUser ? '#1677ff' : '#f5f5f5',
         color: isUser ? '#fff' : '#333',
         fontSize: 14, lineHeight: 1.6, wordBreak: 'break-word',
